@@ -1,10 +1,10 @@
 9cad1ddce9e5a63143ba340c9520626b
-::res://::1795385916
+::res://::1795389349
 construction_yard.tscn::PackedScene::-1::1795387161::0::1::::<><><>0<>0<><>::res://scripts/structure_view.gd<>res://assets/sprites/d2/cy.png
 export_presets.cfg::TextFile::-1::1795096806::0::1::::<><><>0<>0<><>::
 icon.svg::CompressedTexture2D::2702489696591458374::1795090735::1795351413::1::::<><><>0<>0<>24e79173e6e409963bf2d0c35b005cee<>res://.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.ctex::
 main.tscn::PackedScene::-1::1795098630::0::1::::<><><>0<>0<><>::res://scripts/game.gd
-README.md::TextFile::-1::1795364374::0::1::::<><><>0<>0<><>::
+README.md::TextFile::-1::1795389349::0::1::::<><><>0<>0<><>::
 refinery.tscn::PackedScene::-1::1795387161::0::1::::<><><>0<>0<><>::res://scripts/structure_view.gd<>res://assets/sprites/d2/refinery.png
 wind_trap.tscn::PackedScene::-1::1795387161::0::1::::<><><>0<>0<><>::res://scripts/structure_view.gd<>res://assets/sprites/d2/windtrap.png
 ::res://assets/::1795389262
@@ -79,7 +79,7 @@ rocket.png::CompressedTexture2D::5958888943751097282::1795387940::1795387326::1:
 tank_hull.png::CompressedTexture2D::3809702588410918244::1795387945::1795387326::1::::<><><>0<>0<>5d223f8517643e7f68a253d98683ce63<>res://.godot/imported/tank_hull.png-e425ed94de77cfb9970f87e682b0160b.ctex::
 tank_turret.png::CompressedTexture2D::5836403428628954524::1795387945::1795387327::1::::<><><>0<>0<>34aa6632ffb0ec8db6fd750d4ffb15c7<>res://.godot/imported/tank_turret.png-c60c22821713591266c0035dffb24907.ctex::
 trike.png::CompressedTexture2D::5677476417029967342::1795387941::1795387327::1::::<><><>0<>0<>02024f481478c21d7be25ffbb9390b3c<>res://.godot/imported/trike.png-c6f91644ea62207794b546761126dd6b.ctex::
-::res://assets/ui/::1795389262
+::res://assets/ui/::1795389268
 dune_sidebar_shell.png::CompressedTexture2D::4476022543031223437::1795389262::1795389268::1::::<><><>0<>0<>6a3154ba30f2c4be93ca4eb81a522b14<>res://.godot/imported/dune_sidebar_shell.png-15625a25ae731d16dd8268c49c51b984.ctex::
 ::res://build/::1795387959
 buildings3d_preview.png::CompressedTexture2D::1838940309928552794::1795387929::1795387959::1::::<><><>0<>0<>57128fd6f29f7a869e5dc050d5acf6bd<>res://.godot/imported/buildings3d_preview.png-4834adce32237fa425df9fcd6b3f7ced.ctex::
@@ -214,8 +214,8 @@ fx.gd::GDScript::2730573318736244380::1795354792::0::1::::Fx<>Node2D<><>0<>0<><>
 game.gd::GDScript::1175593318045061780::1795386555::0::1::::<>Node2D<><>0<>0<><>::
 game_defs.gd::GDScript::8294028760057208212::1795386733::0::1::::GameDefs<>RefCounted<><>0<>0<><>::
 harvester.gd::GDScript::5734001100534997171::1795360641::0::1::::Harvester<>Unit<><>0<>0<><>::
-hud.gd::GDScript::2381258182320919458::1795388280::0::1::::GameHUD<>CanvasLayer<><>0<>0<><>::
-minimap.gd::GDScript::4854999304433838437::1795386241::0::1::::Minimap<>Control<><>0<>0<><>::
+hud.gd::GDScript::2381258182320919458::1795389405::0::1::::GameHUD<>CanvasLayer<><>0<>0<><>::
+minimap.gd::GDScript::4854999304433838437::1795389439::0::1::::Minimap<>Control<><>0<>0<><>::
 projectile.gd::GDScript::4215911104376680878::1795355943::0::1::::BallisticProjectile<>Node2D<><>0<>0<><>::
 rocket.gd::GDScript::3660199636121225538::1795355943::0::1::::RocketProjectile<>Node2D<><>0<>0<><>::
 scorch_layer.gd::GDScript::6637117345476127978::1795354792::0::1::::ScorchLayer<>Node2D<><>0<>0<><>::
