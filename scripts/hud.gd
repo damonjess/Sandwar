@@ -1,0 +1,1261 @@
+class_name GameHUD
+extends CanvasLayer
+
+## Classic Dune 2000 command sidebar replica.
+##
+## The supplied 160x404 sidebar shell supplies the carved mahogany/bronze frame,
+## large radar recess, five-icon command row and brass scrollers. Live radar,
+## action states, production rows, queue badges and touch affordances are drawn
+## on top of that shell. Gameplay and the existing touch contract are unchanged.
+
+const PANEL_WIDTH := 285.0
+const SHELL_REF_W := 160.0
+const SHELL_REF_H := 404.0
+const SHELL_SCALE := PANEL_WIDTH / SHELL_REF_W
+const SHELL_TEXTURE := "res://assets/ui/dune_sidebar_shell.png"
+const BUILD_ROW_REF_H := 40.0
+const BUILD_ROW_REF_GAP := 4.0
+
+const C_PANEL_TOP := Color("2b1911")
+const C_PANEL_BOT := Color("120b07")
+const C_FRAME := Color("75502c")
+const C_FRAME_HI := Color("c59656")
+const C_BRASS := Color("a87b3f")
+const C_INSET := Color("0b0d0c")
+const C_TEXT := Color("ecdcc0")
+const C_DIM := Color("a08969")
+const C_GOLD := Color("e8b65a")
+const C_GREEN := Color("75c83c")
+const C_BLUE := Color("3567d8")
+const C_CYAN := Color("4ad9c6")
+const C_TILE := Color("1b1814")
+const C_TILE_OFF := Color("11100e")
+const C_STEEL := Color("262a29")
+const C_STEEL_HI := Color("77817c")
+const C_DIGITAL := Color("8fffd2")
+
+var game
+var credits_label: Label
+var info_label: Label
+var status_label: Label
+var log_label: Label
+var header_label: Label
+var structure_grid: VBoxContainer
+var unit_grid: VBoxContainer
+var structure_scroll: ScrollContainer
+var unit_scroll: ScrollContainer
+var buttons: Array = []
+var minimap: Minimap
+var power_bar: PowerBar
+var cancel_button: Button
+var box_button: Button
+var repair_button: ActionIcon
+var sell_button: ActionIcon
+var guard_button: ActionIcon
+var hammer_button: ActionIcon
+var status_orb: StatusOrb
+var options_button: Button
+var options_popup: PanelContainer
+var credits_plate: Control
+var quick_strip: HBoxContainer
+var screen_footer: PanelContainer
+var tab := "all"
+
+var overlay: Control
+var overlay_title: Label
+var overlay_body: Label
+var refresh_timer := 0.0
+
+const STRUCTURE_ITEMS := [
+	["structure", "windtrap"],
+	["structure", "refinery"],
+	["structure", "barracks"],
+	["structure", "factory"],
+	["structure", "turret"],
+	["structure", "rocketturret"],
+	["brush", "slab"],
+	["brush", "wall"],
+]
+const INFANTRY_ITEMS := [
+	["unit", "infantry"],
+	["unit", "rocket"],
+]
+const VEHICLE_ITEMS := [
+	["unit", "trike"],
+	["unit", "quad"],
+	["unit", "tank"],
+	["unit", "harvester"],
+]
+const UNIT_ITEMS := [
+	["unit", "infantry"],
+	["unit", "rocket"],
+	["unit", "trike"],
+	["unit", "quad"],
+	["unit", "tank"],
+	["unit", "harvester"],
+]
+
+# ------------------------------------------------------------------ widgets
+
+## Beveled mahogany and bronze frame with rivets, painted behind the panel.
+class HudSkin:
+	extends Control
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var bands := 18
+		for i in bands:
+			var t := float(i) / float(bands - 1)
+			draw_rect(Rect2(0.0, h * float(i) / float(bands), w, h / float(bands) + 1.0),
+				GameHUD.C_PANEL_TOP.lerp(GameHUD.C_PANEL_BOT, t))
+		for i in 13:
+			var y := h * (0.08 + float(i) * 0.071) + sin(float(i) * 4.7) * 5.0
+			draw_line(Vector2(9.0, y), Vector2(w - 9.0, y + sin(float(i) * 2.1) * 3.0),
+				Color(0.44, 0.25, 0.14, 0.055), 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.035, 0.018, 0.012), false, 2.0)
+		draw_rect(Rect2(3.0, 3.0, w - 6.0, h - 6.0), GameHUD.C_FRAME, false, 5.0)
+		draw_line(Vector2(5.0, 5.0), Vector2(w - 5.0, 5.0), GameHUD.C_FRAME_HI, 2.0)
+		draw_line(Vector2(5.0, 5.0), Vector2(5.0, h - 5.0), GameHUD.C_FRAME_HI, 1.0)
+		draw_line(Vector2(5.0, h - 5.0), Vector2(w - 5.0, h - 5.0), Color(0.035, 0.018, 0.010), 3.0)
+		draw_line(Vector2(w - 5.0, 5.0), Vector2(w - 5.0, h - 5.0), Color(0.08, 0.045, 0.025), 2.0)
+		draw_rect(Rect2(9.0, 9.0, w - 18.0, h - 18.0), Color(0.03, 0.016, 0.010, 0.52), false, 1.0)
+		draw_rect(Rect2(12.0, 12.0, w - 24.0, h - 24.0), Color(0.40, 0.27, 0.15, 0.30), false, 1.0)
+		var rivets: Array[Vector2] = [
+			Vector2(12.0, 14.0), Vector2(w - 12.0, 14.0), Vector2(12.0, h - 14.0), Vector2(w - 12.0, h - 14.0),
+			Vector2(w * 0.5, 14.0), Vector2(w * 0.5, h - 14.0), Vector2(12.0, h * 0.5), Vector2(w - 12.0, h * 0.5),
+		]
+		for p in rivets:
+			draw_circle(p, 4.0, Color(0.24, 0.14, 0.08))
+			draw_circle(p, 3.0, Color(0.72, 0.54, 0.29))
+			draw_circle(p - Vector2(0.6, 0.8), 1.2, Color(0.99, 0.89, 0.58))
+			draw_circle(p + Vector2(0.8, 1.0), 1.4, Color(0.25, 0.14, 0.07))
+
+
+## Tall blue-and-green Atreides power spine with a crystal at its foot.
+class PowerBar:
+	extends Control
+
+	var generated := 0.0
+	var used := 0.0
+	var _clock := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		if used > generated + 0.01:
+			queue_redraw()
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var gem := Vector2(w * 0.5, h - 7.5)
+		var span_top := 3.0
+		var span_bottom := h - 17.0
+		var span := maxf(span_bottom - span_top, 8.0)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.018, 0.018, 0.014, 0.94))
+		draw_rect(Rect2(Vector2(0.5, 0.5), size - Vector2(1.0, 1.0)), Color(0.38, 0.25, 0.12, 0.9), false, 1.0)
+		var rail := Rect2(w * 0.20, span_top, w * 0.60, span)
+		draw_rect(rail, Color(0.018, 0.045, 0.080, 1.0))
+		draw_rect(Rect2(rail.position.x - 1.5, rail.position.y, 2.0, rail.size.y), Color(0.10, 0.30, 0.52, 0.96))
+		draw_rect(Rect2(rail.end.x - 0.5, rail.position.y, 2.0, rail.size.y), Color(0.10, 0.30, 0.52, 0.96))
+		var deficit := used > generated + 0.01
+		var near := not deficit and (generated - used) <= maxf(generated * 0.15, 1.0)
+		var lit_color := Color(0.94, 0.32, 0.20) if deficit else (Color(0.96, 0.76, 0.20) if near else Color(0.55, 0.86, 0.25))
+		if deficit:
+			lit_color.a = 0.58 + 0.42 * absf(sin(_clock * 7.0))
+		var segments := 28
+		var cap := maxf(maxf(generated, used), 1.0)
+		var seg_step := span / float(segments)
+		for i in segments:
+			var threshold := float(i + 1) / float(segments) * cap
+			var lit := generated + 0.01 >= threshold
+			var y := span_bottom - float(i + 1) * seg_step + 1.2
+			var sh := maxf(seg_step - 2.0, 1.0)
+			draw_rect(Rect2(rail.position.x + 2.0, y, rail.size.x - 4.0, sh),
+				lit_color if lit else Color(0.055, 0.032, 0.022, 1.0))
+			if lit:
+				draw_line(Vector2(rail.position.x + 3.0, y + 0.5), Vector2(rail.end.x - 3.0, y + 0.5),
+					lit_color.lightened(0.34), 1.0)
+		var drain_y := span_bottom - clampf(used / cap, 0.0, 1.0) * span
+		draw_line(Vector2(0.0, drain_y), Vector2(w, drain_y), Color(1.0, 0.93, 0.63, 0.96), 1.5)
+		draw_line(Vector2(0.0, drain_y + 1.0), Vector2(w, drain_y + 1.0), Color(0.02, 0.01, 0.005, 0.9), 1.0)
+		# Bronze collar and blue Atreides crystal at the base.
+		draw_circle(gem, 7.1, Color(0.10, 0.065, 0.035))
+		draw_circle(gem, 6.2, Color(0.32, 0.22, 0.10))
+		draw_circle(gem, 5.0, Color(0.04, 0.10, 0.22))
+		draw_circle(gem, 4.2, Color(0.11, 0.32, 0.66))
+		draw_circle(gem - Vector2(1.4, 1.6), 1.8, Color(0.58, 0.82, 1.0, 0.92))
+
+
+## Gold credit orb next to the credit count.
+class CoinIcon:
+	extends Control
+
+	func _draw() -> void:
+		var c := size * 0.5
+		draw_circle(c, size.x * 0.46, Color(0.12, 0.08, 0.05))
+		draw_circle(c, size.x * 0.40, GameHUD.C_GOLD)
+		draw_circle(c - Vector2(size.x * 0.10, size.x * 0.10), size.x * 0.16, Color(0.99, 0.90, 0.62))
+
+
+## Transparent command hotspot drawn over the shell's baked action icon.
+class ActionIcon:
+	extends Control
+
+	signal tapped
+	var glyph := "repair"
+	var caption := "REPAIR"
+	var active := false
+	var enabled := true
+	var _hover := false
+	var _clock := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		if active:
+			queue_redraw()
+
+	func _gui_input(event: InputEvent) -> void:
+		var hit := false
+		if event is InputEventMouseButton:
+			hit = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+		elif event is InputEventScreenTouch:
+			hit = event.pressed and event.index <= 0
+		if hit:
+			accept_event()
+			if enabled:
+				tapped.emit()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_ENTER:
+			_hover = true
+			queue_redraw()
+		elif what == NOTIFICATION_MOUSE_EXIT:
+			_hover = false
+			queue_redraw()
+
+	func _arch_points(r: Rect2) -> PackedVector2Array:
+		return PackedVector2Array([
+			r.position + Vector2(2.0, r.size.y),
+			r.position + Vector2(2.0, 5.0),
+			r.position + Vector2(7.0, 1.0),
+			r.position + Vector2(r.size.x - 7.0, 1.0),
+			r.position + Vector2(r.size.x - 2.0, 5.0),
+			r.position + Vector2(r.size.x - 2.0, r.size.y),
+		])
+
+	func _draw() -> void:
+		var r := Rect2(Vector2(1.0, 1.0), size - Vector2(2.0, 2.0))
+		if not enabled:
+			var dim := _arch_points(r)
+			draw_colored_polygon(dim, Color(0.02, 0.012, 0.008, 0.62))
+			return
+		if active:
+			var pulse := 0.58 + 0.42 * absf(sin(_clock * 5.2))
+			var pts := _arch_points(r)
+			var closed := pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(1.0, 0.76, 0.22, 0.06 + 0.05 * pulse))
+			draw_polyline(closed, Color(1.0, 0.82, 0.36, 0.55 + 0.40 * pulse), 2.0)
+		elif _hover:
+			var pts := _arch_points(r)
+			var closed := pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(1.0, 0.82, 0.42, 0.07))
+			draw_polyline(closed, Color(1.0, 0.90, 0.55, 0.88), 1.5)
+
+
+## Glow over the shell's central amber orb; also focuses the home base.
+class StatusOrb:
+	extends Control
+
+	signal tapped
+	var level := "ok"
+	var caption := "GRID OK"
+	var _clock := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	func _gui_input(event: InputEvent) -> void:
+		var hit := false
+		if event is InputEventMouseButton:
+			hit = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+		elif event is InputEventScreenTouch:
+			hit = event.pressed and event.index <= 0
+		if hit:
+			accept_event()
+			tapped.emit()
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		queue_redraw()
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var rad := minf(size.x, size.y) * 0.39
+		var col := Color(0.48, 0.86, 0.30)
+		if level == "warn":
+			col = Color(1.0, 0.72, 0.20)
+		elif level == "bad":
+			col = Color(1.0, 0.28, 0.16)
+		var pulse := 0.56 + 0.44 * absf(sin(_clock * (4.4 if level == "bad" else 2.1)))
+		draw_circle(c, rad + 2.0, Color(col.r, col.g, col.b, 0.045 + 0.04 * pulse))
+		draw_arc(c, rad, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.60 + 0.35 * pulse), 1.4)
+		draw_arc(c, rad - 2.2, PI * 0.15, PI * 0.85, 14, Color(1.0, 0.91, 0.63, 0.55), 1.0)
+
+
+## Dark steel digital credits cradle shown above the battlefield.
+class CreditsPlate:
+	extends Control
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		draw_rect(r, Color(0.025, 0.032, 0.030, 0.96))
+		draw_rect(r, GameHUD.C_FRAME, false, 2.0)
+		draw_line(Vector2(3.0, 3.0), Vector2(size.x - 3.0, 3.0), GameHUD.C_FRAME_HI, 1.0)
+		draw_rect(Rect2(8.0, 7.0, size.x - 16.0, size.y - 14.0), Color(0.015, 0.020, 0.019), false, 1.0)
+		for x in [8.0, size.x - 8.0]:
+			for y in [7.0, size.y - 7.0]:
+				draw_circle(Vector2(x, y), 2.2, GameHUD.C_BRASS)
+				draw_circle(Vector2(x, y) + Vector2(-0.4, -0.5), 0.9, Color(1.0, 0.9, 0.58))
+		draw_line(Vector2(10.0, size.y - 10.0), Vector2(size.x - 10.0, size.y - 10.0), Color(0.35, 0.22, 0.11, 0.58), 1.0)
+
+
+## Transparent hit area over the shell's baked brass scroll chevrons.
+class ScrollArrow:
+	extends Control
+
+	signal tapped
+	var direction := -1
+	var _hover := false
+	var _down := false
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	func _gui_input(event: InputEvent) -> void:
+		var hit := false
+		if event is InputEventMouseButton:
+			hit = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+		elif event is InputEventScreenTouch:
+			hit = event.pressed and event.index <= 0
+		if hit:
+			accept_event()
+			_down = true
+			queue_redraw()
+			tapped.emit()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_ENTER:
+			_hover = true
+			queue_redraw()
+		elif what == NOTIFICATION_MOUSE_EXIT:
+			_hover = false
+			_down = false
+			queue_redraw()
+
+	func _draw() -> void:
+		if not _hover and not _down:
+			return
+		var r := Rect2(Vector2(1.5, 2.0), size - Vector2(3.0, 4.0))
+		draw_colored_polygon(PackedVector2Array([
+			r.position, r.position + Vector2(r.size.x, 0.0),
+			r.position + Vector2(r.size.x - 3.0, r.size.y - 2.0),
+			r.position + Vector2(0.0, r.size.y - 2.0),
+		]), Color(1.0, 0.78, 0.30, 0.12 if _hover else 0.18))
+		draw_rect(r, Color(1.0, 0.86, 0.48, 0.54), false, 1.0)
+		var c := size * 0.5
+		var w := minf(size.x, size.y) * 0.20
+		var tip := c + Vector2(0.0, -w * 0.65 if direction < 0 else w * 0.65)
+		var base_y := c.y + w * 0.55 if direction < 0 else c.y - w * 0.55
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(c.x - w, base_y), Vector2(c.x + w, base_y), tip,
+		]), Color(1.0, 0.88, 0.48, 0.80))
+
+
+## Small Atreides hawk crest beside the panel title.
+class HouseCrest:
+	extends Control
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var blue := GameHUD.C_BLUE.lightened(0.18)
+		var gold := GameHUD.C_GOLD
+		draw_circle(c, minf(size.x, size.y) * 0.48, Color(0.07, 0.08, 0.07))
+		draw_circle(c, minf(size.x, size.y) * 0.44, Color(0.30, 0.22, 0.12), false, 1.5)
+		var wings := PackedVector2Array([
+			c + Vector2(0.0, -7.0), c + Vector2(4.0, -3.0), c + Vector2(9.0, -5.0),
+			c + Vector2(5.0, 1.0), c + Vector2(8.0, 5.0), c + Vector2(2.0, 4.0),
+			c + Vector2(0.0, 8.0), c + Vector2(-2.0, 4.0), c + Vector2(-8.0, 5.0),
+			c + Vector2(-5.0, 1.0), c + Vector2(-9.0, -5.0), c + Vector2(-4.0, -3.0),
+		])
+		draw_colored_polygon(wings, blue)
+		draw_polyline(wings + PackedVector2Array([wings[0]]), gold, 1.0)
+		draw_circle(c + Vector2(0.0, -1.0), 2.0, gold)
+
+
+## Portrait build slot with miniature status grid, production sweep, queue badge,
+## READY flash and touch cancel badge.
+class BuildTile:
+	extends Control
+
+	signal tapped
+	signal secondary
+	signal cancel_pressed
+
+	var kind := "structure"
+	var item_id := ""
+	var cost := 0
+	var caption := ""
+	var accent := Color(0.25, 0.58, 0.95)
+	var available := true
+	var hovered := false
+	var queue_count := 0
+	var progress := 0.0
+	var ready_state := false
+	var game
+	var touch_suppressed := false
+	var cancel_flash := 0.0
+	var _holding := false
+	var _hold_index := -1
+	var _hold_started_ms := 0
+	var _hold_pos := Vector2.ZERO
+	var _hold_fired := false
+	var _ignore_release := false
+
+	const TOP := Color("4b2a18")
+	const BOTTOM := Color("1a0c09")
+
+	func can_cancel() -> bool:
+		return queue_count > 0 or ready_state
+
+	func _touch_blocked() -> bool:
+		if touch_suppressed:
+			return true
+		return game != null and game.camera != null and game.camera.is_gesture_suppressed()
+
+	func cancel_rect() -> Rect2:
+		return Rect2(size.x - 30.0, 1.0, 29.0, 26.0)
+
+	func _process(delta: float) -> void:
+		if cancel_flash > 0.0:
+			cancel_flash = maxf(0.0, cancel_flash - delta)
+			queue_redraw()
+		if _holding:
+			if _touch_blocked():
+				_holding = false
+				_ignore_release = true
+				return
+			if not _hold_fired and Time.get_ticks_msec() - _hold_started_ms >= 400 and can_cancel():
+				_hold_fired = true
+				cancel_flash = 0.32
+				cancel_pressed.emit()
+				queue_redraw()
+
+	func flash_cancel() -> void:
+		cancel_flash = 0.32
+		queue_redraw()
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseMotion:
+			hovered = true
+			queue_redraw()
+			return
+		if _touch_blocked() and (event is InputEventScreenTouch or event is InputEventScreenDrag):
+			if event is InputEventScreenTouch and not event.pressed:
+				_holding = false
+				_ignore_release = true
+				_hold_fired = false
+			return
+		if event is InputEventMouseButton:
+			if not event.pressed:
+				if event.button_index != MOUSE_BUTTON_LEFT:
+					return
+				if _holding:
+					_holding = false
+					accept_event()
+					if not _hold_fired and not _ignore_release:
+						tapped.emit()
+					_hold_fired = false
+					_ignore_release = false
+				return
+			if event.button_index == MOUSE_BUTTON_RIGHT:
+				accept_event()
+				secondary.emit()
+				return
+			if event.button_index != MOUSE_BUTTON_LEFT:
+				return
+		elif event is InputEventScreenTouch:
+			if event.index > 0:
+				return
+			if not event.pressed:
+				if _holding and _hold_index == event.index:
+					_holding = false
+					accept_event()
+					if not _hold_fired and not _ignore_release:
+						tapped.emit()
+					_hold_fired = false
+					_ignore_release = false
+				return
+		else:
+			return
+		if can_cancel() and cancel_rect().has_point(event.position):
+			accept_event()
+			cancel_flash = 0.32
+			cancel_pressed.emit()
+			_hold_fired = true
+			_ignore_release = true
+			queue_redraw()
+			return
+		_holding = true
+		_hold_index = event.index if event is InputEventScreenTouch else -1
+		_hold_started_ms = Time.get_ticks_msec()
+		_hold_pos = event.position
+		_hold_fired = false
+		_ignore_release = false
+		accept_event()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_ENTER:
+			hovered = true
+			queue_redraw()
+		elif what == NOTIFICATION_MOUSE_EXIT:
+			hovered = false
+			queue_redraw()
+
+	func _ellipse(c: Vector2, rx: float, ry: float, col: Color) -> void:
+		var pts := PackedVector2Array()
+		for i in 18:
+			var a := TAU * float(i) / 18.0
+			pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+		draw_colored_polygon(pts, col)
+
+	func _draw_portrait_background(w: float, h: float) -> void:
+		for i in 10:
+			var t := float(i) / 9.0
+			draw_rect(Rect2(0.0, h * float(i) / 10.0, w, h / 10.0 + 1.0), TOP.lerp(BOTTOM, t))
+		var hsh := absi(item_id.hash())
+		for i in 9:
+			var fx := float((hsh / (i + 1) + i * 53) % 997) / 997.0
+			var fy := float((hsh / (i + 3) + i * 91) % 991) / 991.0
+			var x := fx * w
+			var y := fy * h
+			draw_line(Vector2(x, y), Vector2(minf(w, x + 8.0 + float(i % 4) * 6.0), minf(h, y + 2.0)),
+				Color(0.84, 0.53, 0.28, 0.08 + 0.03 * float(i % 3)), 1.0)
+		draw_line(Vector2(0.0, h * 0.61), Vector2(w, h * 0.57), Color(0.87, 0.60, 0.30, 0.16), 1.0)
+		_ellipse(Vector2(w * 0.5, h * 0.76), w * 0.35, h * 0.13, Color(0.02, 0.012, 0.008, 0.45))
+		draw_circle(Vector2(w * 0.5, h * 0.42), h * 0.42, Color(0.96, 0.62, 0.28, 0.055))
+
+	func _draw_status_grid() -> void:
+		var cell := 3.6
+		var gap := 1.2
+		var total := cell * 3.0 + gap * 2.0
+		var origin := Vector2(4.0, 4.0)
+		draw_rect(Rect2(origin - Vector2(1.0, 1.0), Vector2(total + 2.0, total + 2.0)), Color(0.02, 0.012, 0.008, 0.86))
+		var lit := 9
+		var col := Color(0.44, 0.80, 0.25)
+		if not available:
+			lit = 0
+			col = Color(0.52, 0.17, 0.11)
+		elif ready_state:
+			col = Color(1.0, 0.80, 0.24)
+		elif queue_count > 0:
+			lit = clampi(int(ceil(clampf(progress, 0.06, 1.0) * 9.0)), 1, 9)
+			col = Color(0.74, 0.88, 0.30)
+		for row in 3:
+			for column in 3:
+				var i := row * 3 + column
+				var r := Rect2(origin + Vector2(float(column) * (cell + gap), float(row) * (cell + gap)), Vector2(cell, cell))
+				draw_rect(r, col if i < lit else Color(0.12, 0.07, 0.045, 0.92))
+				if i < lit:
+					draw_line(r.position, r.position + Vector2(r.size.x, 0.0), col.lightened(0.45), 0.8)
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var rect := Rect2(Vector2(1.0, 1.0), Vector2(w - 2.0, h - 2.0))
+		_draw_portrait_background(w, h)
+		var icon: Texture2D = null
+		if kind == "unit":
+			icon = UnitArt.icon(item_id)
+		else:
+			icon = BuildingArt.icon(item_id)
+		if icon != null:
+			var box := minf(w * 0.80, h * 0.88)
+			var aspect := float(icon.get_width()) / float(icon.get_height())
+			var iw := box * minf(aspect, 1.0)
+			var ih := box / maxf(aspect, 0.01)
+			if ih > box:
+				iw *= box / ih
+				ih = box
+			var center := Vector2(w * 0.5, h * 0.46)
+			draw_texture_rect(icon, Rect2(center - Vector2(iw, ih) * 0.5, Vector2(iw, ih)), false)
+		else:
+			var cap := caption.to_upper()
+			draw_string(get_theme_default_font(), Vector2(4.0, h * 0.55), cap, HORIZONTAL_ALIGNMENT_CENTER,
+				w - 8.0, 9, Color(0.88, 0.78, 0.58, 0.9))
+		if not available:
+			draw_rect(rect, Color(0.02, 0.012, 0.008, 0.48))
+		# A soft Atreides-blue edge keeps the photo plates from reading flat.
+		draw_line(Vector2(2.0, 1.0), Vector2(w - 2.0, 1.0), Color(0.35, 0.54, 0.92, 0.35), 1.0)
+		if progress > 0.001 and not ready_state:
+			var lit_h := (h - 4.0) * clampf(progress, 0.0, 1.0)
+			draw_rect(Rect2(2.0, h - 3.0 - lit_h, w - 4.0, lit_h), Color(0.48, 0.86, 0.20, 0.13))
+			draw_line(Vector2(2.0, h - 2.0 - lit_h), Vector2(w - 2.0, h - 2.0 - lit_h), Color(0.88, 1.0, 0.52, 0.82), 1.4)
+		if kind != "unit":
+			_draw_status_grid()
+		draw_rect(rect, Color(0.08, 0.045, 0.025, 0.98), false, 1.0)
+		if queue_count > 0:
+			var badge := str(queue_count)
+			var font := get_theme_default_font()
+			var bw := maxf(17.0, font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 7.0)
+			var reserve := 31.0 if can_cancel() else 3.0
+			var br := Rect2(w - bw - reserve, 3.0, bw, 14.0)
+			draw_rect(br, Color(0.035, 0.020, 0.012, 0.96))
+			draw_rect(br, Color(0.86, 0.68, 0.34, 0.94), false, 1.0)
+			draw_string(font, br.position + Vector2(3.5, 11.0), badge, HORIZONTAL_ALIGNMENT_CENTER,
+				bw - 7.0, 10, Color(1.0, 0.95, 0.76))
+		if can_cancel():
+			var cr := cancel_rect()
+			var pulse := 1.0 if cancel_flash > 0.0 else 0.82
+			draw_circle(cr.get_center(), 8.0, Color(0.20, 0.035, 0.018, 0.96))
+			draw_circle(cr.get_center(), 8.0, Color(1.0, 0.48, 0.26, pulse), false, 1.4)
+			var c := cr.get_center()
+			draw_line(c + Vector2(-3.6, -3.6), c + Vector2(3.6, 3.6), Color(1.0, 0.92, 0.72, pulse), 1.8)
+			draw_line(c + Vector2(3.6, -3.6), c + Vector2(-3.6, 3.6), Color(1.0, 0.92, 0.72, pulse), 1.8)
+		if ready_state:
+			var pulse := 0.58 + 0.42 * absf(sin(Time.get_ticks_msec() * 0.006))
+			draw_rect(rect, Color(1.0, 0.84, 0.28, 0.52 + 0.38 * pulse), false, 1.6)
+			var band := Rect2(3.0, h * 0.40, w - 6.0, 12.0)
+			draw_rect(band, Color(0.045, 0.030, 0.012, 0.88))
+			draw_string(get_theme_default_font(), band.position + Vector2(0.0, 9.5), "READY",
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x, 9, Color(1.0, 0.87, 0.32, pulse))
+		if cancel_flash > 0.0:
+			draw_rect(Rect2(Vector2(1.0, 1.0), size - Vector2(2.0, 2.0)), Color(1.0, 0.28, 0.12, 0.15))
+			draw_rect(Rect2(Vector2(1.0, 1.0), size - Vector2(2.0, 2.0)), Color(1.0, 0.58, 0.28, 0.76), false, 1.5)
+		if hovered:
+			draw_rect(rect, Color(1.0, 0.85, 0.44, 0.86), false, 1.2)
+
+
+# -------------------------------------------------------------------- setup
+
+func setup(g) -> void:
+	game = g
+	layer = 5
+	_build_panel()
+	_build_overlay()
+	_rebuild_grid()
+	refresh()
+
+func _inset_style() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_INSET
+	sb.border_color = C_FRAME
+	sb.set_border_width_all(2)
+	return sb
+
+func _button_style(bg: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = C_FRAME
+	sb.set_border_width_all(1)
+	sb.content_margin_left = 5.0
+	sb.content_margin_right = 5.0
+	sb.content_margin_top = 2.0
+	sb.content_margin_bottom = 2.0
+	return sb
+
+func _build_panel() -> void:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	root.offset_left = -PANEL_WIDTH
+	root.offset_top = 0.0
+	root.offset_right = 0.0
+	root.offset_bottom = 0.0
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(root)
+
+	var skin := HudSkin.new()
+	skin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(skin)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 22)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_top", 9)
+	margin.add_theme_constant_override("margin_bottom", 9)
+	root.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	margin.add_child(column)
+
+	var title_row := HBoxContainer.new()
+	title_row.custom_minimum_size = Vector2(0.0, 30.0)
+	title_row.add_theme_constant_override("separation", 7)
+	column.add_child(title_row)
+	var crest := HouseCrest.new()
+	crest.custom_minimum_size = Vector2(26.0, 26.0)
+	crest.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	crest.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_row.add_child(crest)
+	var title := Label.new()
+	title.text = "ATREIDES"
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", C_BLUE.lightened(0.42))
+	title.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.85))
+	title.add_theme_constant_override("shadow_offset_x", 1)
+	title.add_theme_constant_override("shadow_offset_y", 1)
+	title_row.add_child(title)
+	var title_spacer := Control.new()
+	title_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_child(title_spacer)
+	header_label = Label.new()
+	header_label.text = "COMMAND"
+	header_label.add_theme_font_size_override("font_size", 9)
+	header_label.add_theme_color_override("font_color", C_DIM)
+	header_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title_row.add_child(header_label)
+
+	var map_center := CenterContainer.new()
+	map_center.custom_minimum_size = Vector2(0.0, 136.0)
+	map_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(map_center)
+	var map_frame := PanelContainer.new()
+	map_frame.custom_minimum_size = Vector2(132.0, 132.0)
+	map_frame.add_theme_stylebox_override("panel", _inset_style())
+	map_center.add_child(map_frame)
+	var map_margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		map_margin.add_theme_constant_override(side, 4)
+	map_frame.add_child(map_margin)
+	minimap = Minimap.new()
+	map_margin.add_child(minimap)
+	minimap.setup(game)
+
+	var actions := HBoxContainer.new()
+	actions.custom_minimum_size = Vector2(0.0, 46.0)
+	actions.add_theme_constant_override("separation", 4)
+	column.add_child(actions)
+	repair_button = ActionIcon.new()
+	repair_button.glyph = "repair"
+	repair_button.caption = "REPAIR"
+	repair_button.tooltip_text = "Repair: tap a damaged building"
+	repair_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	repair_button.custom_minimum_size = Vector2(0.0, 46.0)
+	repair_button.tapped.connect(func(): _tap(); game.toggle_repair())
+	actions.add_child(repair_button)
+	sell_button = ActionIcon.new()
+	sell_button.glyph = "sell"
+	sell_button.caption = "SELL"
+	sell_button.tooltip_text = "Sell the selected structure for 50% and muster two infantry"
+	sell_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_button.custom_minimum_size = Vector2(0.0, 46.0)
+	sell_button.tapped.connect(func(): _tap(); game.sell_selected_building())
+	actions.add_child(sell_button)
+	guard_button = ActionIcon.new()
+	guard_button.glyph = "guard"
+	guard_button.caption = "GUARD"
+	guard_button.tooltip_text = "Guard with selected units, or set a rally point for a selected structure"
+	guard_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	guard_button.custom_minimum_size = Vector2(0.0, 46.0)
+	guard_button.tapped.connect(func(): _tap(); game.guard_or_rally())
+	actions.add_child(guard_button)
+	status_orb = StatusOrb.new()
+	status_orb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_orb.custom_minimum_size = Vector2(0.0, 46.0)
+	status_orb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	actions.add_child(status_orb)
+
+	var build_row := HBoxContainer.new()
+	build_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	build_row.add_theme_constant_override("separation", 5)
+	column.add_child(build_row)
+	power_bar = PowerBar.new()
+	power_bar.custom_minimum_size = Vector2(16.0, 0.0)
+	power_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	power_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	build_row.add_child(power_bar)
+	var columns := HBoxContainer.new()
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 6)
+	build_row.add_child(columns)
+	var left := _make_build_column("STRUCTURES")
+	structure_scroll = left["scroll"]
+	structure_grid = left["list"]
+	columns.add_child(left["shell"])
+	var right := _make_build_column("UNITS")
+	unit_scroll = right["scroll"]
+	unit_grid = right["list"]
+	columns.add_child(right["shell"])
+
+	var info_row := HBoxContainer.new()
+	info_row.add_theme_constant_override("separation", 4)
+	column.add_child(info_row)
+	info_label = Label.new()
+	info_label.add_theme_font_size_override("font_size", 10)
+	info_label.add_theme_color_override("font_color", C_DIM)
+	info_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_label.clip_text = true
+	info_row.add_child(info_label)
+	var status_row := HBoxContainer.new()
+	status_row.add_theme_constant_override("separation", 4)
+	column.add_child(status_row)
+	status_label = Label.new()
+	status_label.add_theme_font_size_override("font_size", 12)
+	status_label.add_theme_color_override("font_color", C_GOLD)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_label.max_lines_visible = 2
+	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_label.custom_minimum_size = Vector2(0.0, 30.0)
+	status_row.add_child(status_label)
+	cancel_button = Button.new()
+	cancel_button.text = "CANCEL"
+	cancel_button.focus_mode = Control.FOCUS_NONE
+	cancel_button.custom_minimum_size = Vector2(76.0, 26.0)
+	cancel_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cancel_button.add_theme_font_size_override("font_size", 10)
+	cancel_button.add_theme_color_override("font_color", C_TEXT)
+	cancel_button.add_theme_stylebox_override("normal", _button_style(Color(0.30, 0.19, 0.10)))
+	cancel_button.add_theme_stylebox_override("hover", _button_style(Color(0.42, 0.28, 0.14)))
+	cancel_button.add_theme_stylebox_override("pressed", _button_style(Color(0.20, 0.12, 0.06)))
+	cancel_button.visible = false
+	cancel_button.pressed.connect(func(): _tap(); game.cancel_current())
+	status_row.add_child(cancel_button)
+	log_label = Label.new()
+	log_label.add_theme_font_size_override("font_size", 10)
+	log_label.add_theme_color_override("font_color", C_DIM)
+	log_label.clip_text = true
+	log_label.max_lines_visible = 1
+	log_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	log_label.custom_minimum_size = Vector2(0.0, 14.0)
+	column.add_child(log_label)
+
+	var quick := HBoxContainer.new()
+	quick.custom_minimum_size = Vector2(0.0, 26.0)
+	quick.add_theme_constant_override("separation", 3)
+	column.add_child(quick)
+	for spec in [["BASE", "Focus the base", "focus_home"], ["ARMY", "Select all combat units", "select_all_army"], ["HARV", "Select harvesters", "select_all_harvesters"], ["BOX", "Next drag draws a selection box", "toggle_box"]]:
+		var b := Button.new()
+		b.text = String(spec[0])
+		b.tooltip_text = String(spec[1])
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0.0, 24.0)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 9)
+		b.add_theme_color_override("font_color", C_TEXT)
+		b.add_theme_stylebox_override("normal", _button_style(Color(0.19, 0.14, 0.09)))
+		b.add_theme_stylebox_override("hover", _button_style(Color(0.30, 0.22, 0.12)))
+		b.add_theme_stylebox_override("pressed", _button_style(Color(0.38, 0.28, 0.13)))
+		var method := String(spec[2])
+		if method == "toggle_box":
+			box_button = b
+			b.toggle_mode = true
+		b.pressed.connect(_on_quick.bind(method))
+		quick.add_child(b)
+
+	_build_top_bar()
+
+func _make_build_column(title: String) -> Dictionary:
+	var shell := PanelContainer.new()
+	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	shell.add_theme_stylebox_override("panel", _inset_style())
+	var edge := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		edge.add_theme_constant_override(side, 3)
+	shell.add_child(edge)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 3)
+	edge.add_child(col)
+	var caption := Label.new()
+	caption.text = title
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.add_theme_font_size_override("font_size", 11)
+	caption.add_theme_color_override("font_color", C_GOLD)
+	caption.custom_minimum_size = Vector2(0.0, 18.0)
+	col.add_child(caption)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	scroll.follow_focus = true
+	col.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 4)
+	scroll.add_child(list)
+	var arrows := HBoxContainer.new()
+	arrows.add_theme_constant_override("separation", 3)
+	arrows.custom_minimum_size = Vector2(0.0, 22.0)
+	col.add_child(arrows)
+	for direction in [-1, 1]:
+		var arrow := ScrollArrow.new()
+		arrow.direction = direction
+		arrow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		arrow.custom_minimum_size = Vector2(0.0, 21.0)
+		arrow.tooltip_text = "Scroll up" if direction < 0 else "Scroll down"
+		arrow.tapped.connect(func(): _scroll_column(scroll, direction))
+		arrows.add_child(arrow)
+	return {"shell": shell, "scroll": scroll, "list": list}
+
+func _scroll_column(scroll: ScrollContainer, direction: int) -> void:
+	if scroll == null:
+		return
+	_scroll_tween(scroll, scroll.scroll_vertical + direction * 72)
+
+func _scroll_tween(scroll: ScrollContainer, target: int) -> void:
+	var bar := scroll.get_v_scroll_bar()
+	var max_scroll := int(maxf(bar.max_value - bar.page, 0.0))
+	var tween := create_tween()
+	tween.tween_property(scroll, "scroll_vertical", clampi(target, 0, max_scroll), 0.14).set_trans(Tween.TRANS_SINE)
+
+func _build_top_bar() -> void:
+	var top := Control.new()
+	top.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(top)
+
+	options_button = Button.new()
+	options_button.text = "OPTIONS"
+	options_button.focus_mode = Control.FOCUS_NONE
+	options_button.position = Vector2(12.0, 10.0)
+	options_button.size = Vector2(100.0, 32.0)
+	options_button.add_theme_font_size_override("font_size", 11)
+	options_button.add_theme_color_override("font_color", C_TEXT)
+	options_button.add_theme_stylebox_override("normal", _button_style(Color(0.12, 0.14, 0.13, 0.94)))
+	options_button.add_theme_stylebox_override("hover", _button_style(Color(0.23, 0.25, 0.22, 0.98)))
+	options_button.add_theme_stylebox_override("pressed", _button_style(Color(0.06, 0.08, 0.07, 0.98)))
+	options_button.pressed.connect(func(): _tap(); _toggle_options())
+	top.add_child(options_button)
+
+	credits_plate = CreditsPlate.new()
+	credits_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	credits_plate.offset_left = -PANEL_WIDTH - 208.0
+	credits_plate.offset_right = -PANEL_WIDTH - 12.0
+	credits_plate.offset_top = 9.0
+	credits_plate.offset_bottom = 43.0
+	credits_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(credits_plate)
+	var coin := CoinIcon.new()
+	coin.position = Vector2(10.0, 9.0)
+	coin.size = Vector2(18.0, 18.0)
+	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	credits_plate.add_child(coin)
+	credits_label = Label.new()
+	credits_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	credits_label.offset_left = 34.0
+	credits_label.offset_right = -10.0
+	credits_label.offset_top = 5.0
+	credits_label.offset_bottom = -3.0
+	credits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	credits_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	credits_label.add_theme_font_size_override("font_size", 19)
+	credits_label.add_theme_color_override("font_color", C_DIGITAL)
+	credits_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.12, 0.08, 0.95))
+	credits_label.add_theme_constant_override("shadow_offset_x", 0)
+	credits_label.add_theme_constant_override("shadow_offset_y", 1)
+	credits_plate.add_child(credits_label)
+
+	options_popup = PanelContainer.new()
+	options_popup.position = Vector2(12.0, 48.0)
+	options_popup.size = Vector2(238.0, 152.0)
+	options_popup.z_index = 80
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.07, 0.06, 0.985)
+	sb.border_color = C_FRAME_HI
+	sb.set_border_width_all(2)
+	sb.content_margin_left = 12.0
+	sb.content_margin_right = 12.0
+	sb.content_margin_top = 9.0
+	sb.content_margin_bottom = 9.0
+	options_popup.add_theme_stylebox_override("panel", sb)
+	options_popup.visible = false
+	top.add_child(options_popup)
+	var opt_col := VBoxContainer.new()
+	opt_col.add_theme_constant_override("separation", 6)
+	options_popup.add_child(opt_col)
+	var opt_title := Label.new()
+	opt_title.text = "COMMAND OPTIONS"
+	opt_title.add_theme_font_size_override("font_size", 14)
+	opt_title.add_theme_color_override("font_color", C_GOLD)
+	opt_col.add_child(opt_title)
+	var opt_hint := Label.new()
+	opt_hint.text = "Drag to pan. Pinch to zoom. Tap a unit, then the ground."
+	opt_hint.add_theme_font_size_override("font_size", 10)
+	opt_hint.add_theme_color_override("font_color", C_DIM)
+	opt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	opt_col.add_child(opt_hint)
+	var resume := Button.new()
+	resume.text = "RESUME"
+	resume.focus_mode = Control.FOCUS_NONE
+	resume.custom_minimum_size = Vector2(0.0, 26.0)
+	resume.add_theme_font_size_override("font_size", 11)
+	resume.add_theme_color_override("font_color", C_TEXT)
+	resume.add_theme_stylebox_override("normal", _button_style(Color(0.20, 0.16, 0.09)))
+	resume.add_theme_stylebox_override("hover", _button_style(Color(0.32, 0.24, 0.12)))
+	resume.pressed.connect(func(): _tap(); options_popup.visible = false)
+	opt_col.add_child(resume)
+	var restart := Button.new()
+	restart.text = "RESTART BATTLE"
+	restart.focus_mode = Control.FOCUS_NONE
+	restart.custom_minimum_size = Vector2(0.0, 26.0)
+	restart.add_theme_font_size_override("font_size", 11)
+	restart.add_theme_color_override("font_color", C_DIM)
+	restart.add_theme_stylebox_override("normal", _button_style(Color(0.14, 0.11, 0.08)))
+	restart.add_theme_stylebox_override("hover", _button_style(Color(0.25, 0.18, 0.10)))
+	restart.pressed.connect(func(): _tap(); game.restart())
+	opt_col.add_child(restart)
+
+func _toggle_options() -> void:
+	if options_popup == null:
+		return
+	options_popup.visible = not options_popup.visible
+	if options_popup.visible:
+		options_popup.move_to_front()
+
+func _on_quick(method: String) -> void:
+	_tap()
+	if game != null:
+		game.call(method)
+
+func _build_overlay() -> void:
+	overlay = Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	add_child(overlay)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.02, 0.01, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	center.add_child(box)
+
+	overlay_title = Label.new()
+	overlay_title.add_theme_font_size_override("font_size", 48)
+	overlay_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(overlay_title)
+
+	overlay_body = Label.new()
+	overlay_body.add_theme_font_size_override("font_size", 20)
+	overlay_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(overlay_body)
+
+	var again := Button.new()
+	again.text = "FIGHT AGAIN"
+	again.custom_minimum_size = Vector2(300.0, 64.0)
+	again.add_theme_font_size_override("font_size", 20)
+	again.focus_mode = Control.FOCUS_NONE
+	again.pressed.connect(func(): game.restart())
+	box.add_child(again)
+
+# ------------------------------------------------------------------- actions
+
+func _tap() -> void:
+	if game != null:
+		game.play_ui_sfx("ui_click", -10.0)
+
+func _on_tab(_name: String) -> void:
+	# Kept for compatibility. The classic layout has no hidden tabs: both
+	# production columns are always visible.
+	if game.placing != "":
+		game.exit_placement()
+	refresh()
+
+func _set_tab(_name: String) -> void:
+	tab = "all"
+	if header_label != null:
+		header_label.text = "COMMAND"
+	_rebuild_grid()
+
+func _rebuild_grid() -> void:
+	if structure_grid == null or unit_grid == null:
+		return
+	for child in structure_grid.get_children():
+		structure_grid.remove_child(child)
+		child.queue_free()
+	for child in unit_grid.get_children():
+		unit_grid.remove_child(child)
+		child.queue_free()
+	buttons.clear()
+	for item in STRUCTURE_ITEMS:
+		_add_build_tile(structure_grid, item)
+	for item in UNIT_ITEMS:
+		_add_build_tile(unit_grid, item)
+	refresh()
+
+func _add_build_tile(column: VBoxContainer, item: Array) -> void:
+	var kind := String(item[0])
+	var id := String(item[1])
+	var def: Dictionary
+	if kind == "structure":
+		def = GameDefs.STRUCTURES[id]
+	elif kind == "brush":
+		def = GameDefs.BRUSHES[id]
+	else:
+		def = GameDefs.UNITS[id]
+	var tile := BuildTile.new()
+	tile.kind = kind
+	tile.item_id = id
+	tile.cost = int(def["cost"])
+	tile.caption = _caption_for(id, String(def["name"]))
+	tile.accent = GameDefs.TEAM_COLORS[0]
+	tile.available = game.can_build(kind, id)
+	if kind == "unit" and UnitArt.has_icon(id):
+		tile.material = UnitArt.hud_material(0)
+		tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	elif BuildingArt.has_art(id):
+		tile.material = BuildingArt.hud_material(0)
+		tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tile.custom_minimum_size = Vector2(0.0, 62.0)
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.game = game
+	tile.tapped.connect(func(): _on_item(kind, id))
+	tile.secondary.connect(func(): _on_secondary(kind, id))
+	tile.cancel_pressed.connect(func(): _on_cancel(kind, id))
+	column.add_child(tile)
+	buttons.append(tile)
+
+func _caption_for(id: String, fallback: String) -> String:
+	if id == "rocket":
+		return "TROOPER"
+	return fallback.to_upper()
+
+func _on_secondary(kind: String, id: String) -> void:
+	_tap()
+	if kind == "structure" or kind == "unit":
+		var cancelled: bool = game.cancel_icon(kind, id)
+		if cancelled:
+			Input.vibrate_handheld(35)
+			_flash_cancelled_tile(kind, id)
+	refresh()
+
+func _on_cancel(kind: String, id: String) -> void:
+	_tap()
+	var cancelled: bool = game.cancel_icon(kind, id)
+	if cancelled:
+		Input.vibrate_handheld(35)
+		_flash_cancelled_tile(kind, id)
+	refresh()
+
+func _flash_cancelled_tile(kind: String, id: String) -> void:
+	for tile in buttons:
+		if is_instance_valid(tile) and String(tile.kind) == kind and String(tile.item_id) == id:
+			tile.flash_cancel()
+
+func _on_item(kind: String, id: String) -> void:
+	_tap()
+	# Any sidebar tap while deploying keeps the built item READY.
+	if game.placing != "":
+		game.exit_placement()
+		refresh()
+		return
+	# A completed structure is only picked up by tapping its flashing READY
+	# tile. Ordinary taps still queue more units/structures.
+	if kind == "structure" and game.queue_ready(kind, id):
+		game.begin_ready_placement()
+		refresh()
+		return
+	if kind == "structure":
+		game.queue_structure(id)
+	elif kind == "brush":
+		game.begin_brush(id)
+	else:
+		game.queue_unit(id)
+	refresh()
+
+func show_result(win: bool, body: String) -> void:
+	overlay.visible = true
+	if options_popup != null:
+		options_popup.visible = false
+	overlay_title.text = "VICTORY" if win else "DEFEAT"
+	overlay_title.add_theme_color_override("font_color", Color(0.55, 0.95, 0.6) if win else Color(0.95, 0.45, 0.4))
+	overlay_body.text = body
+
+func overlay_visible() -> bool:
+	return overlay != null and overlay.visible
+
+func refresh() -> void:
+	if game == null or credits_label == null:
+		return
+	credits_label.text = "%d CR" % int(game.credits[0])
+	var out: float = game.power_out(0)
+	var used: float = game.power_used(0)
+	info_label.text = "UNITS %d   SPICE %d   GRID %d/%d" % [game.unit_count(0), game.harvested, int(out), int(used)]
+	info_label.add_theme_color_override("font_color", C_GOLD if out + 0.01 >= used else Color(0.95, 0.38, 0.30))
+	var msgs: Array = game.recent_messages()
+	log_label.text = String(msgs[msgs.size() - 1]) if not msgs.is_empty() else ""
+	status_label.text = game.hud_status()
+	cancel_button.visible = game.placing != "" or game.brush != ""
+	if game.placing != "":
+		cancel_button.text = "KEEP READY"
+	elif game.brush != "":
+		cancel_button.text = "CANCEL"
+	var touch_suppressed: bool = game.camera != null and game.camera.is_gesture_suppressed()
+	var has_build: bool = game.selected_build != null and is_instance_valid(game.selected_build) and not game.selected_build.dead
+	var has_units: bool = not game.selected.is_empty()
+	if repair_button != null:
+		repair_button.active = game.repair_mode
+		repair_button.queue_redraw()
+	if sell_button != null:
+		sell_button.enabled = has_build and not game.game_over
+		sell_button.queue_redraw()
+	if guard_button != null:
+		guard_button.caption = "RALLY" if has_build else "GUARD"
+		guard_button.enabled = (has_build or has_units) and not game.game_over
+		guard_button.queue_redraw()
+	if status_orb != null:
+		var building: bool = not game.structure_queue.is_empty() or not game.infantry_queue.is_empty() or not game.vehicle_queue.is_empty()
+		if out + 0.01 < used:
+			status_orb.level = "bad"
+			status_orb.caption = "LOW POWER"
+		elif building or not game.ready_structure.is_empty():
+			status_orb.level = "warn"
+			status_orb.caption = "BUILDING"
+		else:
+			status_orb.level = "ok"
+			status_orb.caption = "GRID OK"
+	if box_button != null:
+		box_button.set_pressed_no_signal(game.box_armed)
+	if power_bar != null:
+		power_bar.generated = out
+		power_bar.used = used
+		power_bar.queue_redraw()
+	for tile in buttons:
+		if not is_instance_valid(tile):
+			continue
+		var ok: bool = game.can_build(String(tile.kind), String(tile.item_id))
+		if ok != tile.available:
+			tile.available = ok
+		tile.queue_count = game.queue_count(String(tile.kind), String(tile.item_id))
+		tile.progress = game.queue_progress(String(tile.kind), String(tile.item_id))
+		tile.ready_state = game.queue_ready(String(tile.kind), String(tile.item_id))
+		tile.touch_suppressed = touch_suppressed
+		tile.queue_redraw()
+
+func _process(delta: float) -> void:
+	refresh_timer += delta
+	if refresh_timer >= 0.08:
+		refresh_timer = 0.0
+		refresh()
