@@ -675,6 +675,47 @@ func _button_style(bg: Color) -> StyleBoxFlat:
 	sb.content_margin_bottom = 2.0
 	return sb
 
+## Rusted maroon build recess that fills the middle of the replica shell.
+class BuildBackdrop:
+	extends Control
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var top := Color(0.25, 0.11, 0.075)
+		var bottom := Color(0.105, 0.045, 0.032)
+		for i in 12:
+			var t := float(i) / 11.0
+			draw_rect(Rect2(0.0, h * float(i) / 12.0, w, h / 12.0 + 1.0), top.lerp(bottom, t))
+		for i in 17:
+			var x := fmod(12.0 + float(i) * 47.0, w)
+			var y := fmod(9.0 + float(i) * 71.0, h)
+			draw_line(Vector2(x, y), Vector2(minf(w, x + 11.0), minf(h, y + 20.0)),
+				Color(0.58, 0.30, 0.14, 0.10), 1.0)
+		draw_line(Vector2(0.0, 2.0), Vector2(w, 2.0), Color(0.67, 0.45, 0.20, 0.46), 2.0)
+		draw_line(Vector2(0.0, h - 3.0), Vector2(w, h - 3.0), Color(0.02, 0.01, 0.006, 0.85), 3.0)
+		draw_rect(Rect2(Vector2(0.5, 0.5), size - Vector2(1.0, 1.0)), Color(0.45, 0.29, 0.13, 0.70), false, 1.0)
+		var divider_x := 65.0 * GameHUD.SHELL_SCALE
+		draw_line(Vector2(divider_x, 4.0), Vector2(divider_x, h - 4.0), Color(0.03, 0.015, 0.008, 0.82), 3.0)
+		draw_line(Vector2(divider_x + 2.0, 4.0), Vector2(divider_x + 2.0, h - 4.0), Color(0.48, 0.30, 0.14, 0.42), 1.0)
+
+
+func _ref_rect(x: float, y: float, w: float, h: float) -> Rect2:
+	return Rect2(Vector2(x, y) * SHELL_SCALE, Vector2(w, h) * SHELL_SCALE)
+
+
+func _add_action(parent: Control, glyph: String, caption: String, tip: String, rect: Rect2, action: Callable) -> ActionIcon:
+	var b := ActionIcon.new()
+	b.glyph = glyph
+	b.caption = caption
+	b.tooltip_text = tip
+	b.position = rect.position
+	b.size = rect.size
+	b.tapped.connect(func(): _tap(); action.call())
+	parent.add_child(b)
+	return b
+
+
 func _build_panel() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
@@ -685,237 +726,213 @@ func _build_panel() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(root)
 
-	var skin := HudSkin.new()
-	skin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(skin)
+	# The supplied 160x404 shell is the visual master: its carved frame, radar
+	# bezel, action icons and bottom brass scroll buttons remain pixel-faithful.
+	var fallback := ColorRect.new()
+	fallback.color = Color(0.055, 0.025, 0.018)
+	fallback.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	fallback.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(fallback)
+	var shell := TextureRect.new()
+	shell.texture = load(SHELL_TEXTURE)
+	shell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shell.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shell.stretch_mode = TextureRect.STRETCH_SCALE
+	shell.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(shell)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 22)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_top", 9)
-	margin.add_theme_constant_override("margin_bottom", 9)
-	root.add_child(margin)
-
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 4)
-	margin.add_child(column)
-
-	var title_row := HBoxContainer.new()
-	title_row.custom_minimum_size = Vector2(0.0, 30.0)
-	title_row.add_theme_constant_override("separation", 7)
-	column.add_child(title_row)
-	var crest := HouseCrest.new()
-	crest.custom_minimum_size = Vector2(26.0, 26.0)
-	crest.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	crest.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_row.add_child(crest)
-	var title := Label.new()
-	title.text = "ATREIDES"
-	title.add_theme_font_size_override("font_size", 20)
-	title.add_theme_color_override("font_color", C_BLUE.lightened(0.42))
-	title.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.85))
-	title.add_theme_constant_override("shadow_offset_x", 1)
-	title.add_theme_constant_override("shadow_offset_y", 1)
-	title_row.add_child(title)
-	var title_spacer := Control.new()
-	title_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title_row.add_child(title_spacer)
-	header_label = Label.new()
-	header_label.text = "COMMAND"
-	header_label.add_theme_font_size_override("font_size", 9)
-	header_label.add_theme_color_override("font_color", C_DIM)
-	header_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title_row.add_child(header_label)
-
-	var map_center := CenterContainer.new()
-	map_center.custom_minimum_size = Vector2(0.0, 136.0)
-	map_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.add_child(map_center)
-	var map_frame := PanelContainer.new()
-	map_frame.custom_minimum_size = Vector2(132.0, 132.0)
-	map_frame.add_theme_stylebox_override("panel", _inset_style())
-	map_center.add_child(map_frame)
-	var map_margin := MarginContainer.new()
-	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		map_margin.add_theme_constant_override(side, 4)
-	map_frame.add_child(map_margin)
+	var radar_rect := _ref_rect(14.0, 13.0, 132.0, 130.0)
 	minimap = Minimap.new()
-	map_margin.add_child(minimap)
+	minimap.position = radar_rect.position
+	minimap.size = radar_rect.size
 	minimap.setup(game)
+	root.add_child(minimap)
 
-	var actions := HBoxContainer.new()
-	actions.custom_minimum_size = Vector2(0.0, 46.0)
-	actions.add_theme_constant_override("separation", 4)
-	column.add_child(actions)
-	repair_button = ActionIcon.new()
-	repair_button.glyph = "repair"
-	repair_button.caption = "REPAIR"
-	repair_button.tooltip_text = "Repair: tap a damaged building"
-	repair_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	repair_button.custom_minimum_size = Vector2(0.0, 46.0)
-	repair_button.tapped.connect(func(): _tap(); game.toggle_repair())
-	actions.add_child(repair_button)
-	sell_button = ActionIcon.new()
-	sell_button.glyph = "sell"
-	sell_button.caption = "SELL"
-	sell_button.tooltip_text = "Sell the selected structure for 50% and muster two infantry"
-	sell_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sell_button.custom_minimum_size = Vector2(0.0, 46.0)
-	sell_button.tapped.connect(func(): _tap(); game.sell_selected_building())
-	actions.add_child(sell_button)
-	guard_button = ActionIcon.new()
-	guard_button.glyph = "guard"
-	guard_button.caption = "GUARD"
-	guard_button.tooltip_text = "Guard with selected units, or set a rally point for a selected structure"
-	guard_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	guard_button.custom_minimum_size = Vector2(0.0, 46.0)
-	guard_button.tapped.connect(func(): _tap(); game.guard_or_rally())
-	actions.add_child(guard_button)
+	repair_button = _add_action(root, "repair", "REPAIR", "Repair: tap a damaged building",
+		_ref_rect(7.0, 142.0, 32.0, 37.0), func(): game.toggle_repair())
+	sell_button = _add_action(root, "sell", "SELL", "Sell: 50% refund and two infantry",
+		_ref_rect(39.0, 142.0, 32.0, 37.0), func(): game.sell_selected_building())
+	guard_button = _add_action(root, "guard", "GUARD", "Guard units or set a structure rally",
+		_ref_rect(103.0, 142.0, 32.0, 37.0), func(): game.guard_or_rally())
+	hammer_button = _add_action(root, "options", "OPTIONS", "Command options",
+		_ref_rect(135.0, 142.0, 20.0, 37.0), func(): _toggle_options())
+
 	status_orb = StatusOrb.new()
-	status_orb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_orb.custom_minimum_size = Vector2(0.0, 46.0)
-	status_orb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	actions.add_child(status_orb)
+	var orb_rect := _ref_rect(68.0, 139.0, 37.0, 43.0)
+	status_orb.position = orb_rect.position
+	status_orb.size = orb_rect.size
+	status_orb.tooltip_text = "Power grid status - tap to focus the base"
+	status_orb.tapped.connect(func(): _tap(); game.focus_home())
+	root.add_child(status_orb)
 
-	var build_row := HBoxContainer.new()
-	build_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	build_row.add_theme_constant_override("separation", 5)
-	column.add_child(build_row)
-	power_bar = PowerBar.new()
-	power_bar.custom_minimum_size = Vector2(16.0, 0.0)
-	power_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	power_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	build_row.add_child(power_bar)
-	var columns := HBoxContainer.new()
-	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	columns.add_theme_constant_override("separation", 6)
-	build_row.add_child(columns)
-	var left := _make_build_column("STRUCTURES")
+	var build_rect := _ref_rect(18.0, 187.0, 131.0, 182.0)
+	var build_bg := BuildBackdrop.new()
+	build_bg.position = build_rect.position
+	build_bg.size = build_rect.size
+	build_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(build_bg)
+
+	var left := _make_build_column(_ref_rect(21.0, 190.0, 59.0, 172.0))
 	structure_scroll = left["scroll"]
 	structure_grid = left["list"]
-	columns.add_child(left["shell"])
-	var right := _make_build_column("UNITS")
+	root.add_child(left["control"])
+	var right := _make_build_column(_ref_rect(85.0, 190.0, 60.0, 172.0))
 	unit_scroll = right["scroll"]
 	unit_grid = right["list"]
-	columns.add_child(right["shell"])
+	root.add_child(right["control"])
 
-	var info_row := HBoxContainer.new()
-	info_row.add_theme_constant_override("separation", 4)
-	column.add_child(info_row)
-	info_label = Label.new()
-	info_label.add_theme_font_size_override("font_size", 10)
-	info_label.add_theme_color_override("font_color", C_DIM)
-	info_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info_label.clip_text = true
-	info_row.add_child(info_label)
-	var status_row := HBoxContainer.new()
-	status_row.add_theme_constant_override("separation", 4)
-	column.add_child(status_row)
+	power_bar = PowerBar.new()
+	var power_rect := _ref_rect(6.0, 191.0, 12.0, 179.0)
+	power_bar.position = power_rect.position
+	power_bar.size = power_rect.size
+	root.add_child(power_bar)
+
+	var arrow_specs := [
+		[_ref_rect(21.0, 374.0, 29.0, 27.0), -1, structure_scroll, "Scroll structures up"],
+		[_ref_rect(50.0, 374.0, 30.0, 27.0), 1, structure_scroll, "Scroll structures down"],
+		[_ref_rect(85.0, 374.0, 30.0, 27.0), -1, unit_scroll, "Scroll units up"],
+		[_ref_rect(115.0, 374.0, 30.0, 27.0), 1, unit_scroll, "Scroll units down"],
+	]
+	for spec in arrow_specs:
+		var arrow := ScrollArrow.new()
+		arrow.position = spec[0].position
+		arrow.size = spec[0].size
+		arrow.direction = int(spec[1])
+		arrow.tooltip_text = String(spec[3])
+		var scroll = spec[2]
+		var dir := int(spec[1])
+		arrow.tapped.connect(func(): _scroll_column(scroll, dir))
+		root.add_child(arrow)
+
+	_build_top_bar()
+	_build_screen_overlay()
+
+
+func _make_build_column(rect: Rect2) -> Dictionary:
+	var scroll := ScrollContainer.new()
+	scroll.position = rect.position
+	scroll.size = rect.size
+	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	scroll.follow_focus = true
+	var list := VBoxContainer.new()
+	list.custom_minimum_size = Vector2(rect.size.x, 0.0)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", BUILD_ROW_REF_GAP * SHELL_SCALE)
+	scroll.add_child(list)
+	return {"control": scroll, "scroll": scroll, "list": list}
+
+
+func _scroll_column(scroll: ScrollContainer, direction: int) -> void:
+	if scroll == null:
+		return
+	var step := int(round((BUILD_ROW_REF_H + BUILD_ROW_REF_GAP) * SHELL_SCALE))
+	_scroll_tween(scroll, scroll.scroll_vertical + direction * step)
+
+
+func _build_screen_overlay() -> void:
+	var ui := Control.new()
+	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(ui)
+
+	var footer_style := StyleBoxFlat.new()
+	footer_style.bg_color = Color(0.055, 0.032, 0.020, 0.82)
+	footer_style.border_color = Color(0.56, 0.40, 0.20, 0.72)
+	footer_style.set_border_width_all(1)
+	footer_style.content_margin_left = 9.0
+	footer_style.content_margin_right = 9.0
+	footer_style.content_margin_top = 3.0
+	footer_style.content_margin_bottom = 3.0
+	screen_footer = PanelContainer.new()
+	screen_footer.anchor_left = 0.0
+	screen_footer.anchor_top = 1.0
+	screen_footer.anchor_right = 1.0
+	screen_footer.anchor_bottom = 1.0
+	screen_footer.offset_left = 12.0
+	screen_footer.offset_right = -PANEL_WIDTH - 222.0
+	screen_footer.offset_top = -48.0
+	screen_footer.offset_bottom = -8.0
+	screen_footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen_footer.add_theme_stylebox_override("panel", footer_style)
+	ui.add_child(screen_footer)
+	var footer_col := VBoxContainer.new()
+	footer_col.add_theme_constant_override("separation", 0)
+	screen_footer.add_child(footer_col)
 	status_label = Label.new()
-	status_label.add_theme_font_size_override("font_size", 12)
+	status_label.add_theme_font_size_override("font_size", 11)
 	status_label.add_theme_color_override("font_color", C_GOLD)
-	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.max_lines_visible = 2
-	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_label.custom_minimum_size = Vector2(0.0, 30.0)
-	status_row.add_child(status_label)
+	status_label.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.92))
+	status_label.add_theme_constant_override("shadow_offset_x", 1)
+	status_label.add_theme_constant_override("shadow_offset_y", 1)
+	status_label.clip_text = true
+	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	status_label.custom_minimum_size = Vector2(0.0, 19.0)
+	footer_col.add_child(status_label)
+	info_label = Label.new()
+	info_label.add_theme_font_size_override("font_size", 9)
+	info_label.add_theme_color_override("font_color", C_DIM)
+	info_label.clip_text = true
+	info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	info_label.custom_minimum_size = Vector2(0.0, 11.0)
+	footer_col.add_child(info_label)
+	log_label = Label.new()
+	log_label.add_theme_font_size_override("font_size", 9)
+	log_label.visible = false
+	ui.add_child(log_label)
+
 	cancel_button = Button.new()
 	cancel_button.text = "CANCEL"
 	cancel_button.focus_mode = Control.FOCUS_NONE
-	cancel_button.custom_minimum_size = Vector2(76.0, 26.0)
-	cancel_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	cancel_button.add_theme_font_size_override("font_size", 10)
+	cancel_button.anchor_left = 1.0
+	cancel_button.anchor_top = 1.0
+	cancel_button.anchor_right = 1.0
+	cancel_button.anchor_bottom = 1.0
+	cancel_button.offset_left = -PANEL_WIDTH - 116.0
+	cancel_button.offset_right = -PANEL_WIDTH - 12.0
+	cancel_button.offset_top = -78.0
+	cancel_button.offset_bottom = -50.0
+	cancel_button.add_theme_font_size_override("font_size", 9)
 	cancel_button.add_theme_color_override("font_color", C_TEXT)
 	cancel_button.add_theme_stylebox_override("normal", _button_style(Color(0.30, 0.19, 0.10)))
 	cancel_button.add_theme_stylebox_override("hover", _button_style(Color(0.42, 0.28, 0.14)))
 	cancel_button.add_theme_stylebox_override("pressed", _button_style(Color(0.20, 0.12, 0.06)))
 	cancel_button.visible = false
 	cancel_button.pressed.connect(func(): _tap(); game.cancel_current())
-	status_row.add_child(cancel_button)
-	log_label = Label.new()
-	log_label.add_theme_font_size_override("font_size", 10)
-	log_label.add_theme_color_override("font_color", C_DIM)
-	log_label.clip_text = true
-	log_label.max_lines_visible = 1
-	log_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	log_label.custom_minimum_size = Vector2(0.0, 14.0)
-	column.add_child(log_label)
+	ui.add_child(cancel_button)
 
-	var quick := HBoxContainer.new()
-	quick.custom_minimum_size = Vector2(0.0, 26.0)
-	quick.add_theme_constant_override("separation", 3)
-	column.add_child(quick)
+	quick_strip = HBoxContainer.new()
+	quick_strip.anchor_left = 1.0
+	quick_strip.anchor_top = 1.0
+	quick_strip.anchor_right = 1.0
+	quick_strip.anchor_bottom = 1.0
+	quick_strip.offset_left = -PANEL_WIDTH - 198.0
+	quick_strip.offset_right = -PANEL_WIDTH - 12.0
+	quick_strip.offset_top = -39.0
+	quick_strip.offset_bottom = -8.0
+	quick_strip.add_theme_constant_override("separation", 3)
+	ui.add_child(quick_strip)
 	for spec in [["BASE", "Focus the base", "focus_home"], ["ARMY", "Select all combat units", "select_all_army"], ["HARV", "Select harvesters", "select_all_harvesters"], ["BOX", "Next drag draws a selection box", "toggle_box"]]:
 		var b := Button.new()
 		b.text = String(spec[0])
 		b.tooltip_text = String(spec[1])
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(0.0, 24.0)
+		b.custom_minimum_size = Vector2(40.0, 28.0)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_font_size_override("font_size", 9)
 		b.add_theme_color_override("font_color", C_TEXT)
-		b.add_theme_stylebox_override("normal", _button_style(Color(0.19, 0.14, 0.09)))
-		b.add_theme_stylebox_override("hover", _button_style(Color(0.30, 0.22, 0.12)))
-		b.add_theme_stylebox_override("pressed", _button_style(Color(0.38, 0.28, 0.13)))
+		b.add_theme_stylebox_override("normal", _button_style(Color(0.15, 0.10, 0.055, 0.84)))
+		b.add_theme_stylebox_override("hover", _button_style(Color(0.30, 0.21, 0.10, 0.94)))
+		b.add_theme_stylebox_override("pressed", _button_style(Color(0.38, 0.28, 0.13, 0.96)))
 		var method := String(spec[2])
 		if method == "toggle_box":
 			box_button = b
 			b.toggle_mode = true
 		b.pressed.connect(_on_quick.bind(method))
-		quick.add_child(b)
+		quick_strip.add_child(b)
 
-	_build_top_bar()
-
-func _make_build_column(title: String) -> Dictionary:
-	var shell := PanelContainer.new()
-	shell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shell.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	shell.add_theme_stylebox_override("panel", _inset_style())
-	var edge := MarginContainer.new()
-	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		edge.add_theme_constant_override(side, 3)
-	shell.add_child(edge)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 3)
-	edge.add_child(col)
-	var caption := Label.new()
-	caption.text = title
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	caption.add_theme_font_size_override("font_size", 11)
-	caption.add_theme_color_override("font_color", C_GOLD)
-	caption.custom_minimum_size = Vector2(0.0, 18.0)
-	col.add_child(caption)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	scroll.follow_focus = true
-	col.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
-	scroll.add_child(list)
-	var arrows := HBoxContainer.new()
-	arrows.add_theme_constant_override("separation", 3)
-	arrows.custom_minimum_size = Vector2(0.0, 22.0)
-	col.add_child(arrows)
-	for direction in [-1, 1]:
-		var arrow := ScrollArrow.new()
-		arrow.direction = direction
-		arrow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		arrow.custom_minimum_size = Vector2(0.0, 21.0)
-		arrow.tooltip_text = "Scroll up" if direction < 0 else "Scroll down"
-		arrow.tapped.connect(func(): _scroll_column(scroll, direction))
-		arrows.add_child(arrow)
-	return {"shell": shell, "scroll": scroll, "list": list}
-
-func _scroll_column(scroll: ScrollContainer, direction: int) -> void:
-	if scroll == null:
-		return
-	_scroll_tween(scroll, scroll.scroll_vertical + direction * 72)
 
 func _scroll_tween(scroll: ScrollContainer, target: int) -> void:
 	var bar := scroll.get_v_scroll_bar()
@@ -1122,13 +1139,15 @@ func _add_build_tile(column: VBoxContainer, item: Array) -> void:
 	tile.caption = _caption_for(id, String(def["name"]))
 	tile.accent = GameDefs.TEAM_COLORS[0]
 	tile.available = game.can_build(kind, id)
+	var unit_word := " per tile" if kind == "brush" else ""
+	tile.tooltip_text = "%s\n%d credits%s" % [String(def["name"]), int(def["cost"]), unit_word]
 	if kind == "unit" and UnitArt.has_icon(id):
 		tile.material = UnitArt.hud_material(0)
-		tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		tile.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	elif BuildingArt.has_art(id):
 		tile.material = BuildingArt.hud_material(0)
-		tile.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	tile.custom_minimum_size = Vector2(0.0, 62.0)
+		tile.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	tile.custom_minimum_size = Vector2(0.0, BUILD_ROW_REF_H * SHELL_SCALE)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tile.game = game
 	tile.tapped.connect(func(): _on_item(kind, id))
@@ -1224,6 +1243,7 @@ func refresh() -> void:
 	if guard_button != null:
 		guard_button.caption = "RALLY" if has_build else "GUARD"
 		guard_button.enabled = (has_build or has_units) and not game.game_over
+		guard_button.active = game.rally_mode
 		guard_button.queue_redraw()
 	if status_orb != null:
 		var building: bool = not game.structure_queue.is_empty() or not game.infantry_queue.is_empty() or not game.vehicle_queue.is_empty()
@@ -1236,6 +1256,7 @@ func refresh() -> void:
 		else:
 			status_orb.level = "ok"
 			status_orb.caption = "GRID OK"
+		status_orb.tooltip_text = "Power %d/%d - %s - tap to focus base" % [int(out), int(used), status_orb.caption]
 	if box_button != null:
 		box_button.set_pressed_no_signal(game.box_armed)
 	if power_bar != null:
