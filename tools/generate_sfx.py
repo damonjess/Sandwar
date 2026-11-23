@@ -44,6 +44,7 @@ SPECS = {
     "ui_click.wav": ("ui_click", 0),
     "build_ready.wav": ("build_ready", 0),
     "low_power.wav": ("low_power", 0),
+    "worm_roar.wav": ("worm_roar", 0),
 }
 
 DURATIONS = {
@@ -58,6 +59,7 @@ DURATIONS = {
     "ui_click": 0.08,
     "build_ready": 0.56,
     "low_power": 1.05,
+    "worm_roar": 2.60,
 }
 
 PEAKS = {
@@ -72,6 +74,7 @@ PEAKS = {
     "ui_click": 0.62,
     "build_ready": 0.72,
     "low_power": 0.70,
+    "worm_roar": 0.95,
 }
 
 
@@ -354,6 +357,28 @@ def _np_low_power() -> np.ndarray:
     return _np_finish(mix, PEAKS["low_power"])
 
 
+def _np_worm_roar() -> np.ndarray:
+    rng = _np_rng(seed_for("worm_roar", 0))
+    t = _np_t(DURATIONS["worm_roar"])
+    n = t.size
+    # Seismic sub-bass with a slow downward sweep and a throaty growl AM.
+    f = 46.0 - 16.0 * np.clip(t / 1.9, 0.0, 1.0)
+    phase = 2.0 * math.pi * np.cumsum(f) / RATE
+    sub = np.sin(phase) * 0.85
+    sub += np.sin(phase * 1.5 + 0.4) * 0.30
+    sub += np.sin(phase * 2.0 + 1.1) * 0.18
+    growl = 0.68 + 0.32 * np.sin(2.0 * math.pi * 7.5 * t + 0.6 * np.sin(2.0 * math.pi * 1.3 * t))
+    # Sand hiss washing out with the shockwave.
+    sand = _np_bandpass(_np_noise(n, rng), 180.0, 2600.0)
+    wash = np.clip(t / 0.22, 0.0, 1.0) * np.clip((DURATIONS["worm_roar"] - t) / 1.2, 0.0, 1.0)
+    # A wet maw snap as the teeth break the surface.
+    snap_t = np.maximum(t - 0.55, 0.0)
+    snap = _np_bandpass(_np_noise(n, rng), 900.0, 5200.0) * np.exp(-snap_t / 0.09) * (t >= 0.55)
+    mix = (sub * growl + sand * 0.32 * wash + snap * 0.28) * np.clip(t / 0.10, 0.0, 1.0)
+    mix = _np_soft(mix * 1.5, 1.35)
+    return _np_finish(mix, PEAKS["worm_roar"])
+
+
 def render_np(kind: str, variation: int) -> np.ndarray:
     return {
         "cannon": _np_cannon,
@@ -367,6 +392,7 @@ def render_np(kind: str, variation: int) -> np.ndarray:
         "ui_click": lambda _v: _np_ui_click(),
         "build_ready": lambda _v: _np_build_ready(),
         "low_power": lambda _v: _np_low_power(),
+        "worm_roar": lambda _v: _np_worm_roar(),
     }[kind](variation)
 
 
@@ -483,6 +509,19 @@ def render_py(kind: str, variation: int) -> list[float]:
                  + math.sin(2.0 * math.pi * 1320.0 * t) * 0.18) * env
             v += white * math.exp(-t / 0.010) * 0.25
             v = _py_tanh(v * 1.25, 1.2)
+        elif kind == "worm_roar":
+            f = 46.0 - 16.0 * min(t / 1.9, 1.0)
+            phase += 2.0 * math.pi * f / RATE
+            growl = 0.68 + 0.32 * math.sin(2.0 * math.pi * 7.5 * t + 0.6 * math.sin(2.0 * math.pi * 1.3 * t))
+            wash = max(0.0, min(1.0, t / 0.22)) * max(0.0, min(1.0, (DURATIONS["worm_roar"] - t) / 1.2))
+            v = (math.sin(phase) * 0.85
+                 + math.sin(phase * 1.5 + 0.4) * 0.30
+                 + math.sin(phase * 2.0 + 1.1) * 0.18) * growl
+            v += lp * wash * 0.5
+            if t >= 0.55:
+                v += hp * math.exp(-(t - 0.55) / 0.09) * 0.30
+            v *= max(0.0, min(1.0, t / 0.10))
+            v = _py_tanh(v * 1.5, 1.35)
         elif kind == "low_power":
             env = max(0.0, min(1.0, t / 0.12)) * max(0.0, min(1.0, (1.05 - t) / 0.20))
             tremolo = 0.72 + 0.28 * math.sin(2.0 * math.pi * 1.7 * t)

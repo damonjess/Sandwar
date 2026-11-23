@@ -23,6 +23,22 @@ var astar: AStarGrid2D
 
 var units: Array = []
 var buildings: Array = []
+## Airborne jobs in flight (refinery gifts, harvester ferries, reinforcements).
+var carryalls: Array = []
+## Active Shai-Hulud. They live outside `units`: they are terrain hazards, not
+## selectable army, and ground units cannot target them.
+var worms: Array = []
+## Only one worm may run a hunt at a time; the rest keep prowling.
+var worm_hunting = null
+## After a meal, no worm may lock on until this elapsed time passes.
+var worm_quiet_until := 0.0
+## instance id -> true while a Carryall owns that harvester's airlift.
+var ferry_claims: Dictionary = {}
+var ferry_ready: Dictionary = {}
+var reinforce_used := false
+var rescue_used := false
+var reinforce_timer := 0.0
+var rescue_timer := 0.0
 var credits := [2200, 1500]
 var harvested := 0
 var units_built := 0
@@ -49,6 +65,10 @@ var repair_mode := false
 ## tap becomes that structure's production rally point.
 var rally_mode := false
 var rally_building = null
+## Player-nominated spawn building per production type. Set by tapping an
+## already-selected Barracks/Factory again, or by giving it a rally point.
+var primary_barracks = null
+var primary_factory = null
 var drag_active := false
 var drag_start := Vector2.ZERO
 var drag_now := Vector2.ZERO
@@ -83,6 +103,9 @@ var ai_think := 12.0
 var ai_attack_timer := 30.0
 var check_timer := 0.0
 var vision_timer := 0.0
+## Radio proximity sweep and the quiet window after an "enemy approaching" call.
+var alert_timer := 0.0
+var enemy_alert_until := -1.0
 
 func _ready() -> void:
 	rng.randomize()
@@ -150,6 +173,7 @@ func _ready() -> void:
 	camera.limit_bottom = MAP * TILE
 
 	_build_starting_bases()
+	_spawn_worms()
 	focus_home()
 
 	hud = GameHUD.new()
@@ -164,6 +188,11 @@ func _ready() -> void:
 	_update_vision()
 	_apply_fog()
 
+## Enemy radar perimeter, in tiles, and how long the line stays quiet after a
+## contact before it can call again.
+const ENEMY_ALERT_TILES := 13
+const ENEMY_ALERT_QUIET := 20.0
+
 func _process(delta: float) -> void:
 	elapsed += delta
 	if not game_over:
@@ -173,12 +202,18 @@ func _process(delta: float) -> void:
 		if check_timer >= 0.5:
 			check_timer = 0.0
 			_check_victory()
+		alert_timer += delta
+		if alert_timer >= 0.5:
+			alert_timer = 0.0
+			_check_enemy_approach()
 		vision_timer += delta
 		if vision_timer >= 0.2:
 			vision_timer = 0.0
 			_update_vision()
 			_apply_fog()
 		_tick_repair(delta)
+		_tick_carryall_jobs(delta)
+		_tick_reinforcements(delta)
 	if placing != "" or brush != "" or drag_active:
 		queue_redraw()
 
@@ -194,21 +229,21 @@ func _build_starting_bases() -> void:
 		return
 	var player_scout := Factions.scout(GameDefs.house_for_team(0))
 	var enemy_scout := Factions.scout(GameDefs.house_for_team(1))
-	add_building("cy", 0, Vector2i(12, 38))
-	add_building("refinery", 0, Vector2i(17, 38))
-	add_building("barracks", 0, Vector2i(12, 43))
-	add_building("turret", 0, Vector2i(19, 42))
+	add_building("cy", 0, Vector2i(12, 38), true)
+	add_building("refinery", 0, Vector2i(17, 38), true)
+	add_building("barracks", 0, Vector2i(12, 43), true)
+	add_building("turret", 0, Vector2i(19, 42), true)
 	spawn_unit("harvester", 0, Vector2(21.0, 44.0) * float(TILE))
 	spawn_unit("infantry", 0, Vector2(16.0, 44.0) * float(TILE))
 	spawn_unit("infantry", 0, Vector2(16.8, 44.9) * float(TILE))
 	spawn_unit(player_scout, 0, Vector2(18.4, 45.6) * float(TILE))
 
-	add_building("cy", 1, Vector2i(38, 10))
-	add_building("refinery", 1, Vector2i(43, 10))
-	add_building("barracks", 1, Vector2i(38, 15))
-	add_building("factory", 1, Vector2i(42, 14))
-	add_building("turret", 1, Vector2i(36, 16))
-	add_building("turret", 1, Vector2i(46, 12))
+	add_building("cy", 1, Vector2i(38, 10), true)
+	add_building("refinery", 1, Vector2i(43, 10), true)
+	add_building("barracks", 1, Vector2i(38, 15), true)
+	add_building("factory", 1, Vector2i(42, 14), true)
+	add_building("turret", 1, Vector2i(36, 16), true)
+	add_building("turret", 1, Vector2i(46, 12), true)
 	spawn_unit("harvester", 1, Vector2(41.0, 16.0) * float(TILE))
 	spawn_unit("infantry", 1, Vector2(40.0, 18.0) * float(TILE))
 	spawn_unit("infantry", 1, Vector2(40.7, 18.7) * float(TILE))
@@ -250,7 +285,23 @@ func add_building(id: String, team: int, tile: Vector2i, starting := false):
 		# Mission maps are allowed to begin with a healthy trap on raw rock.
 		b.hp = b.max_hp * 0.6
 	_buildings_changed()
+	if id == "refinery" and not starting:
+		_spawn_free_harvester(b, team)
 	return b
+
+## Dune 2000 gifts one harvester with every new refinery, flown in slung under
+## a Carryall. The hull exists immediately but is airborne and untouchable
+## until the dropship sets it on open ground beside the docking pad.
+func _spawn_free_harvester(refinery, team: int) -> void:
+	var span: Vector2i = refinery.span
+	var pad: Vector2i = refinery.tile_origin() + Vector2i(span.x / 2, span.y)
+	var open := _open_tile(pad)
+	if open.x < 0:
+		return
+	var drop := terrain.tile_center(open)
+	var load: Array = [_spawn_hidden_unit("harvester", team, drop)]
+	var drop_ship = _launch_carryall(team, drop, load, "harvester")
+	drop_ship.job = "refinery"
 
 ## How much of a footprint already sits on concrete, 0..1.
 func _concrete_ratio(tile: Vector2i, span: Vector2i) -> float:
@@ -265,6 +316,153 @@ func _concrete_ratio(tile: Vector2i, span: Vector2i) -> float:
 			if terrain.concrete[ty * MAP + tx] == 1:
 				paved += 1
 	return float(paved) / float(total)
+
+## Spawn a unit that is already riding in a Carryall's grapple bay.
+func _spawn_hidden_unit(id: String, team_id: int, drop: Vector2):
+	var u = spawn_unit(id, team_id, drop)
+	u.airborne = true
+	u.visible = false
+	u.set_process(false)
+	u.set_physics_process(false)
+	return u
+
+## Nearest map edge to a drop point, far enough outside the battlefield that
+## the inbound leg always reads as a fly-in.
+func _edge_point(near: Vector2) -> Vector2:
+	var world := float(MAP * TILE)
+	var jitter := rng.randf_range(-3.0, 3.0) * float(TILE)
+	var d_left := near.x
+	var d_right := world - near.x
+	var d_top := near.y
+	var d_bottom := world - near.y
+	var best := minf(minf(d_left, d_right), minf(d_top, d_bottom))
+	if best == d_left:
+		return Vector2(-170.0, clampf(near.y + jitter, 48.0, world - 48.0))
+	if best == d_right:
+		return Vector2(world + 170.0, clampf(near.y + jitter, 48.0, world - 48.0))
+	if best == d_top:
+		return Vector2(clampf(near.x + jitter, 48.0, world - 48.0), -170.0)
+	return Vector2(clampf(near.x + jitter, 48.0, world - 48.0), world + 170.0)
+
+## Leave across the opposite edge so the exit leg never doubles back.
+func _exit_point(from: Vector2, drop: Vector2) -> Vector2:
+	var world := float(MAP * TILE)
+	var lateral := rng.randf_range(-4.0, 4.0) * float(TILE)
+	if from.x < 0.0:
+		return Vector2(world + 190.0, clampf(drop.y + lateral, 48.0, world - 48.0))
+	if from.x > world:
+		return Vector2(-190.0, clampf(drop.y + lateral, 48.0, world - 48.0))
+	if from.y < 0.0:
+		return Vector2(clampf(drop.x + lateral, 48.0, world - 48.0), world + 190.0)
+	return Vector2(clampf(drop.x + lateral, 48.0, world - 48.0), -190.0)
+
+func _launch_carryall(team_id: int, drop: Vector2, load: Array, kind: String):
+	var from := _edge_point(drop)
+	var drop_ship := Carryall.new()
+	add_child(drop_ship)
+	carryalls.append(drop_ship)
+	drop_ship.setup(self, team_id, from, drop, load, _exit_point(from, drop), kind)
+	return drop_ship
+
+func _tick_carryall_jobs(_delta: float) -> void:
+	carryalls = carryalls.filter(func(c): return is_instance_valid(c) and not c.is_queued_for_deletion())
+	# A claim dies the moment its harvester touches down (or is destroyed).
+	for key in ferry_claims.keys():
+		var h = instance_from_id(key)
+		if h == null or not is_instance_valid(h) or h.dead or not h.airborne:
+			ferry_claims.erase(key)
+
+func _pending_harvester_drop(team_id: int) -> bool:
+	for c in carryalls:
+		if is_instance_valid(c) and not c.released and c.team == team_id and c.carry_kind == "harvester":
+			return true
+	return false
+
+## Long-haul airlift: only for a harvester already driving home more than twelve
+## tiles from its refinery, with no other Carryall assigned to that hull.
+func maybe_request_ferry(h) -> void:
+	if h == null or not is_instance_valid(h) or h.dead or h.airborne:
+		return
+	var key: int = h.get_instance_id()
+	if ferry_claims.has(key):
+		return
+	if elapsed < float(ferry_ready.get(key, 0.0)):
+		return
+	var refinery = nearest_building(h.global_position, h.team, "refinery")
+	if refinery == null:
+		return
+	if h.global_position.distance_to(refinery.global_position) <= 12.0 * float(TILE):
+		return
+	var drop: Vector2 = refinery.global_position + Vector2(0.0, refinery.size_px * 0.5 + float(TILE) * 0.7)
+	var open := _open_tile(terrain.tile_of(drop))
+	if open.x < 0:
+		return
+	ferry_claims[key] = true
+	ferry_ready[key] = elapsed + 40.0
+	h.airborne = true
+	h.attack_target = null
+	h.visible = false
+	h.set_process(false)
+	h.set_physics_process(false)
+	var drop_ship = _launch_carryall(h.team, terrain.tile_center(open), [h], "harvester")
+	drop_ship.job = "ferry"
+
+## Milestone reinforcements, plus a Mission 1 safety net: if the last harvester
+## dies, a replacement is flown in so the spice economy cannot soft-lock.
+func _tick_reinforcements(delta: float) -> void:
+	if not reinforce_used:
+		reinforce_timer += delta
+		if reinforce_timer >= 82.0 and nearest_building(Vector2.ZERO, 0, "cy") != null:
+			reinforce_used = true
+			_drop_reinforcements(false)
+	# Campaign Mission 1 and every skirmish get one emergency harvester if
+	# the player loses their last one. Losing the opening harvester to a worm
+	# should never turn the match into an unwinnable walk.
+	var rescue_enabled: bool = not campaign_mission or int(mission.get("tier", 1)) == 1
+	if rescue_enabled and not rescue_used:
+		rescue_timer += delta
+		if rescue_timer >= 15.0 and _count_units(0, "harvester") == 0 \
+				and _count_buildings(0, "refinery") > 0 and not _pending_harvester_drop(0):
+			rescue_used = true
+			_drop_reinforcements(true)
+
+func _drop_reinforcements(rescue: bool) -> void:
+	var cy = nearest_building(Vector2.ZERO, 0, "cy")
+	if cy == null:
+		return
+	var tile: Vector2i = _open_tile(cy.tile_origin() + Vector2i(0, cy.span.y + 2))
+	if tile.x < 0:
+		tile = _open_tile(terrain.tile_of(cy.global_position) + Vector2i(3, 3))
+	if tile.x < 0:
+		return
+	var drop := terrain.tile_center(tile)
+	var load: Array = []
+	if rescue:
+		load.append(_spawn_hidden_unit("harvester", 0, drop))
+	else:
+		var house := GameDefs.house_for_team(0)
+		for role in ["infantry", "rocket"]:
+			var id := CampaignMissions.house_role(house, String(role))
+			load.append(_spawn_hidden_unit(id, 0, drop))
+	var drop_ship = _launch_carryall(0, drop, load, "harvester" if rescue else "unit")
+	drop_ship.job = "reinforce"
+	drop_ship.announce = true
+
+func _spawn_worms() -> void:
+	var count := 2 if MAP >= 54 else 1
+	for i in count:
+		var w := Sandworm.new()
+		add_child(w)
+		w.setup(self, i)
+		worms.append(w)
+
+## Player-facing wormsign alert: radio call, sidebar log line and an amber
+## radar ring on the ridge's current position.
+func worm_warning(pos: Vector2) -> void:
+	play_voice("wormsign", 20.0)
+	_say("Warning: Wormsign detected!")
+	if hud != null and hud.minimap != null:
+		hud.minimap.ping(pos, Color(1.0, 0.72, 0.18))
 
 func spawn_unit(id: String, team: int, pos: Vector2):
 	var u
@@ -373,6 +571,46 @@ func play_ui_sfx(id: String, db := 0.0, pitch := 1.0) -> void:
 	if audio != null:
 		audio.call("play_ui", id, db, pitch)
 
+## Spoken comms alert; the AudioManager owns the single voice channel and queue.
+func play_voice(id: String, cooldown := 12.0) -> void:
+	if audio != null:
+		audio.call("play_voice", id, cooldown)
+
+## Radar sweep: warn once when a visible enemy closes on any player structure.
+func _check_enemy_approach() -> void:
+	if elapsed < enemy_alert_until:
+		return
+	var reach := float(ENEMY_ALERT_TILES * TILE)
+	for u in units:
+		if not is_instance_valid(u) or u.dead or u.team == 0:
+			continue
+		if not terrain.is_visible_at(u.global_position):
+			continue
+		for b in buildings:
+			if not is_instance_valid(b) or b.dead or b.team != 0:
+				continue
+			if u.global_position.distance_to(b.global_position) <= reach:
+				enemy_alert_until = elapsed + ENEMY_ALERT_QUIET
+				play_voice("enemy_approaching", 22.0)
+				_say("Warning: Enemy unit approaching!")
+				if hud != null and hud.minimap != null:
+					hud.minimap.ping(u.global_position, Color(1.0, 0.22, 0.16))
+				return
+
+func on_building_damaged(b) -> void:
+	if b.team != 0:
+		return
+	play_voice("base_under_attack", 18.0)
+	if hud != null and hud.minimap != null:
+		hud.minimap.ping(b.global_position, Color(1.0, 0.22, 0.16))
+
+func on_unit_damaged(u) -> void:
+	if u.team != 0 or u.type_id != "harvester":
+		return
+	play_voice("harvester_under_attack", 15.0)
+	if hud != null and hud.minimap != null:
+		hud.minimap.ping(u.global_position, Color(1.0, 0.62, 0.18))
+
 func on_unit_destroyed(u) -> void:
 	if u.team == 1:
 		enemy_units_destroyed += 1
@@ -380,9 +618,23 @@ func on_unit_destroyed(u) -> void:
 		player_units_lost += 1
 	units.erase(u)
 	selected.erase(u)
-	if fx != null:
-		fx.blast(u.global_position)
-	play_sfx("explosion_medium", u.global_position, -1.0)
+	if u.crushed:
+		# Tracks leave dust and a squashed smear, not a full explosion.
+		if fx != null:
+			fx.impact(u.global_position, "light", 1.1)
+			fx.popup("CRUSHED", u.global_position + Vector2(0.0, -16.0))
+		if scorch_layer != null:
+			scorch_layer.add(u.global_position, 6.0)
+		play_sfx("explosion_small", u.global_position, -12.0, 0.82)
+	elif u.swallowed:
+		# Sandworm: dragged under in one bite. Dust and a low gulp, no fireball.
+		if fx != null:
+			fx.sand_burst(u.global_position, 58.0, 0.9)
+		play_sfx("explosion_small", u.global_position, -8.0, 0.55)
+	else:
+		if fx != null:
+			fx.blast(u.global_position)
+		play_sfx("explosion_medium", u.global_position, -1.0)
 
 func on_building_destroyed(b) -> void:
 	if b.team == 1:
@@ -395,6 +647,10 @@ func on_building_destroyed(b) -> void:
 	buildings.erase(b)
 	if selected_build == b:
 		selected_build = null
+	if primary_barracks == b:
+		primary_barracks = null
+	if primary_factory == b:
+		primary_factory = null
 	if fx != null:
 		fx.blast(b.global_position)
 	play_sfx("explosion_building", b.global_position, 0.0)
@@ -426,7 +682,7 @@ func nearest_enemy(pos: Vector2, team: int, radius: float):
 	var best_d := radius
 	var fogged: bool = team == 0
 	for u in units:
-		if not is_instance_valid(u) or u.dead or u.team == team:
+		if not is_instance_valid(u) or u.dead or u.airborne or u.team == team:
 			continue
 		if fogged and not terrain.is_visible_at(u.global_position):
 			continue
@@ -467,7 +723,7 @@ func _update_vision() -> void:
 func _apply_fog() -> void:
 	for u in units:
 		if is_instance_valid(u):
-			u.visible = u.team == 0 or terrain.is_visible_at(u.global_position)
+			u.visible = not u.airborne and (u.team == 0 or terrain.is_visible_at(u.global_position))
 	for b in buildings:
 		if is_instance_valid(b):
 			b.visible = b.team == 0 or terrain.is_visible_at(b.global_position)
@@ -499,6 +755,12 @@ func _has_building(team: int, id: String) -> bool:
 
 func _find_producer(unit_id: String):
 	var producer_id := String(GameDefs.UNITS[unit_id]["producer"])
+	# A Barracks or Factory the player nominated takes priority, so units keep
+	# emerging from the forward producer instead of the starting base.
+	var primary = primary_barracks if producer_id == "barracks" else primary_factory
+	if primary != null and is_instance_valid(primary) and not primary.dead \
+			and primary.team == 0 and primary.type_id == producer_id:
+		return primary
 	return nearest_building(terrain.tile_center(_base_anchor(0)), 0, producer_id)
 
 # ---------------------------------------------------------------- production
@@ -719,6 +981,7 @@ func _complete_unit(item: Dictionary) -> void:
 				origin = terrain.tile_center(open)
 	spawn_unit(id, 0, origin + Vector2(rng.randf_range(-20.0, 20.0), rng.randf_range(0.0, 18.0)))
 	units_built += 1
+	play_voice("unit_ready", 6.0)
 	_say("%s deployed." % String(item["name"]))
 	if sfx != null:
 		sfx.play_at("deploy", origin, -8.0)
@@ -741,6 +1004,7 @@ func _advance_queue(q: Array, category: String, delta: float) -> void:
 		ready_structure = item
 		_say("%s READY - tap its sidebar icon to place." % String(item["name"]))
 		play_ui_sfx("build_ready", -2.0)
+		play_voice("construction_complete", 8.0)
 		if hud != null:
 			hud.refresh()
 		return
@@ -753,6 +1017,7 @@ func _tick_production(delta: float) -> void:
 		_say("Low power - construction slowed. Build a Wind Trap." if low else "Power restored - construction at full speed.")
 		if low:
 			play_ui_sfx("low_power", -5.0)
+			play_voice("low_power", 20.0)
 	# The three production lines are independent. A finished structure waiting
 	# for READY placement pauses only the structure line; infantry and vehicles
 	# keep training in parallel.
@@ -827,7 +1092,53 @@ func begin_brush(id: String) -> void:
 
 # ------------------------------------------------------------------ building
 
+## Dune 2000 construction rule: new structures stay on explored ground and no
+## more than two tiles from the base the player already holds.
+const BUILD_RADIUS := 2
+
+func _placement_explored(type_id: String, tile: Vector2i) -> bool:
+	var span := GameDefs.size_of(type_id)
+	for ty in range(tile.y, tile.y + span.y):
+		for tx in range(tile.x, tile.x + span.x):
+			if not terrain.is_seen_tile(tx, ty):
+				return false
+	return true
+
+## Chebyshev distance from a tile to the nearest friendly footprint.
+func _near_friendly_base(tile: Vector2i) -> bool:
+	for b in buildings:
+		if not is_instance_valid(b) or b.dead or b.team != 0:
+			continue
+		var origin: Vector2i = b.tile_origin()
+		var dx := maxi(maxi(origin.x - tile.x, tile.x - (origin.x + b.span.x - 1)), 0)
+		var dy := maxi(maxi(origin.y - tile.y, tile.y - (origin.y + b.span.y - 1)), 0)
+		if maxi(dx, dy) <= BUILD_RADIUS:
+			return true
+	return false
+
+func _near_concrete(tile: Vector2i) -> bool:
+	for dy in range(-BUILD_RADIUS, BUILD_RADIUS + 1):
+		for dx in range(-BUILD_RADIUS, BUILD_RADIUS + 1):
+			var tx := tile.x + dx
+			var ty := tile.y + dy
+			if tx < 0 or ty < 0 or tx >= MAP or ty >= MAP:
+				continue
+			if terrain.concrete[ty * MAP + tx] == 1:
+				return true
+	return false
+
+func _placement_in_range(type_id: String, tile: Vector2i) -> bool:
+	var span := GameDefs.size_of(type_id)
+	for ty in range(tile.y, tile.y + span.y):
+		for tx in range(tile.x, tile.x + span.x):
+			var probe := Vector2i(tx, ty)
+			if _near_friendly_base(probe) or _near_concrete(probe):
+				return true
+	return false
+
 func can_place(type_id: String, tile: Vector2i) -> bool:
+	if not _placement_explored(type_id, tile) or not _placement_in_range(type_id, tile):
+		return false
 	var span := GameDefs.size_of(type_id)
 	for ty in range(tile.y, tile.y + span.y):
 		for tx in range(tile.x, tile.x + span.x):
@@ -845,6 +1156,10 @@ func can_place(type_id: String, tile: Vector2i) -> bool:
 func _can_pave_tile(tile: Vector2i) -> bool:
 	if not terrain.can_pave(tile):
 		return false
+	if not terrain.is_seen_tile(tile.x, tile.y):
+		return false
+	if not _near_friendly_base(tile) and not _near_concrete(tile):
+		return false
 	var rect := Rect2(Vector2(tile) * float(TILE), Vector2(float(TILE), float(TILE)))
 	for b in buildings:
 		if is_instance_valid(b) and not b.dead and b.world_rect().intersects(rect):
@@ -860,7 +1175,12 @@ func try_place(world: Vector2) -> void:
 	var span := GameDefs.size_of(placing)
 	var tile := terrain.tile_of(world) - span / 2
 	if not can_place(placing, tile):
-		_say("Cannot build there - need clear rock or concrete.")
+		if not _placement_explored(placing, tile):
+			_say("Cannot build in unexplored territory.")
+		elif not _placement_in_range(placing, tile):
+			_say("Must build adjacent to existing base or concrete.")
+		else:
+			_say("Cannot build there - need clear rock or concrete.")
 		return
 	add_building(placing, 0, tile)
 	_say("%s deployed." % String(GameDefs.STRUCTURES[placing]["name"]))
@@ -893,7 +1213,7 @@ func try_brush(world: Vector2) -> void:
 			_say("Paved %d tiles." % placed)
 			play_ui_sfx("build_place", -4.0)
 		else:
-			_say("Cannot pave there.")
+			_say("Cannot pave there - too far from base or blocked.")
 		if hud != null:
 			hud.refresh()
 	elif brush == "wall":
@@ -903,7 +1223,12 @@ func try_brush(world: Vector2) -> void:
 			return
 		var tile := terrain.tile_of(world)
 		if not can_place("wall", tile):
-			_say("Walls need clear rock or concrete.")
+			if not _placement_explored("wall", tile):
+				_say("Cannot build in unexplored territory.")
+			elif not _placement_in_range("wall", tile):
+				_say("Must build adjacent to existing base or concrete.")
+			else:
+				_say("Walls need clear rock or concrete.")
 			return
 		add_building("wall", 0, tile)
 		credits[0] -= cost
@@ -1091,6 +1416,10 @@ func _click(world: Vector2, additive: bool, allow_command := true) -> void:
 		if repair_mode:
 			_start_repair(structure)
 			return
+		if structure == selected_build:
+			# Tapping the already-selected producer nominates its spawn point.
+			_set_primary_producer(structure)
+			return
 		selected.clear()
 		selected_build = structure
 		_after_select()
@@ -1189,9 +1518,14 @@ func sell_selected_building() -> void:
 	var wall_tile: Vector2i = b.tile_origin()
 	var was_wall: bool = b.type_id == "wall"
 	var wall_team: int = b.team
+	var span: Vector2i = b.span
 	buildings.erase(b)
 	if selected_build == b:
 		selected_build = null
+	if primary_barracks == b:
+		primary_barracks = null
+	if primary_factory == b:
+		primary_factory = null
 	if rally_building == b:
 		rally_building = null
 		rally_mode = false
@@ -1201,27 +1535,32 @@ func sell_selected_building() -> void:
 	credits[0] += refund
 	if was_wall:
 		_refresh_wall_neighbours(wall_tile, wall_team)
-	# Rebuild the navigation grid before finding the two crew spawn tiles: the
-	# sold footprint must be walkable immediately.
+	# A wall is only real estate: selling it returns credits and nothing else,
+	# which closes the old sell-a-wall-for-free-infantry loop. Turrets field one
+	# crewman, larger structures two.
+	var crew := 0
+	if not was_wall:
+		crew = 1 if span.x * span.y <= 1 else 2
+	# Rebuild the navigation grid before finding the crew spawn tiles: the sold
+	# footprint must be walkable immediately.
 	_buildings_changed()
 	var base_tile := terrain.tile_of(center)
+	var mustered := 0
 	for offset in [Vector2i(-1, 1), Vector2i(1, 1), Vector2i(0, 2), Vector2i(-2, 1)]:
+		if mustered >= crew:
+			break
 		var open := _open_tile(base_tile + offset)
 		if open.x < 0:
 			continue
 		spawn_unit("infantry", 0, terrain.tile_center(open) + Vector2(rng.randf_range(-6.0, 6.0), rng.randf_range(-6.0, 6.0)))
-		break
-	# Spawn the second crew member from the opposite side; keep this explicit so
-	# the refund cannot accidentally create a squad.
-	var second := _open_tile(base_tile + Vector2i(1, 1))
-	if second.x < 0:
-		second = _open_tile(base_tile + Vector2i(-1, 1))
-	if second.x >= 0:
-		spawn_unit("infantry", 0, terrain.tile_center(second) + Vector2(rng.randf_range(-6.0, 6.0), rng.randf_range(-6.0, 6.0)))
+		mustered += 1
 	if fx != null:
 		fx.popup("+%d CR" % refund, center + Vector2(0.0, -20.0))
 	play_ui_sfx("ui_click", -4.0)
-	_say("Sold %s (+%d credits). Two infantry mustered." % [label, refund])
+	if crew > 0:
+		_say("Sold %s (+%d credits). %d infantry mustered." % [label, refund, crew])
+	else:
+		_say("Sold %s (+%d credits)." % [label, refund])
 	if hud != null:
 		hud.refresh()
 
@@ -1259,6 +1598,21 @@ func guard_or_rally() -> void:
 			return
 	_say("Select units to guard, or a structure to set a rally.")
 
+func _set_primary_producer(b, quiet := false) -> void:
+	if b == null or not is_instance_valid(b) or b.dead or b.team != 0:
+		return
+	if b.type_id == "barracks":
+		primary_barracks = b
+	elif b.type_id == "factory":
+		primary_factory = b
+	else:
+		return
+	if not quiet:
+		_say("%s is now the primary spawn." % String(GameDefs.STRUCTURES[b.type_id]["name"]))
+		if hud != null:
+			hud.refresh()
+	queue_redraw()
+
 func _set_rally(world: Vector2) -> void:
 	if rally_building == null or not is_instance_valid(rally_building) or rally_building.dead:
 		rally_mode = false
@@ -1270,6 +1624,8 @@ func _set_rally(world: Vector2) -> void:
 		return
 	rally_building.has_rally = true
 	rally_building.rally_point = terrain.tile_center(open)
+	# Setting a rally on a producer also makes it the primary spawn building.
+	_set_primary_producer(rally_building, true)
 	_say("%s rally set." % String(GameDefs.STRUCTURES[rally_building.type_id]["name"]))
 	rally_mode = false
 	rally_building = null
@@ -1415,19 +1771,30 @@ func _ai_decide() -> void:
 			and _count_units(1, "harvester") + _ai_queued("harvester") < 2 \
 			and _ai_buy_unit("harvester"):
 		return
-	# Rebuild production before anything else.
+	# Rebuild production before anything else, but only what this mission's tech
+	# level has unlocked: no Light Factory on Mission 1.
 	for id in AI_REBUILD:
-		if not _has_building(1, id):
-			_ai_buy_structure(id)
+		if not GameDefs.tech_available("structure", id):
+			continue
+		if not _has_building(1, id) and _ai_buy_structure(id):
 			return
-	# Turrets around the yard, more as the game goes on.
-	if _count_buildings(1, "turret") + _ai_queued("turret") < mini(8, 3 + int(float(ai_wave) / 2.0)):
-		if _ai_buy_structure("turret"):
+	# Turrets around the yard, more as the game goes on. Rocket turrets join the
+	# mix once the tech level allows them.
+	var turrets := _count_buildings(1, "turret") + _count_buildings(1, "rocketturret")
+	var turret_goal := mini(8, 3 + int(float(ai_wave) / 2.0))
+	if turrets + _ai_queued("turret") + _ai_queued("rocketturret") < turret_goal:
+		var turret_id := "turret"
+		if GameDefs.tech_level >= 4 and GameDefs.tech_available("structure", "rocketturret") and turrets % 2 == 1:
+			turret_id = "rocketturret"
+		if GameDefs.tech_available("structure", turret_id) and _ai_buy_structure(turret_id):
 			return
-	# One wind trap to power the yard, once the economy is up and running.
-	if ai_wave >= 1 and _count_buildings(1, "windtrap") + _ai_queued("windtrap") < 1:
-		if _ai_buy_structure("windtrap"):
-			return
+	# A starved grid gets another trap immediately; otherwise one trap early on
+	# keeps the yard running. Six is enough for any base the AI can afford.
+	if GameDefs.tech_available("structure", "windtrap"):
+		var traps := _count_buildings(1, "windtrap") + _ai_queued("windtrap")
+		if (not has_power(1) and traps < 6) or (ai_wave >= 1 and traps < 1):
+			if _ai_buy_structure("windtrap"):
+				return
 	if _team_combat_units(1).size() + ai_queue.size() >= ai_army_cap:
 		return
 	# Keep a mixed army drawn from the enemy House's own roster. The unit
@@ -1492,6 +1859,8 @@ func _ai_buy_unit(id: String) -> bool:
 	return true
 
 func _ai_buy_structure(id: String) -> bool:
+	if not GameDefs.tech_available("structure", id):
+		return false
 	var def: Dictionary = GameDefs.STRUCTURES[id]
 	if credits[1] < int(def["cost"]):
 		return false

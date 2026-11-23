@@ -5,7 +5,7 @@
 
 [node name="WindTrap" type="Node2D"]
 script = ExtResource("1_sv")
-art_top = -68.0
+art_top = -67.0
 structure_id = "windtrap"
 
 [node name="Housing" type="Sprite2D" parent="."]

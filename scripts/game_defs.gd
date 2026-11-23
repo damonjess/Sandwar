@@ -20,6 +20,54 @@ const ENEMY := 1
 ## of every battle; the defaults keep tools and standalone checks playable.
 static var team_houses: Array = [Factions.ATREIDES, Factions.HARKONNEN]
 static var tech_level := 99
+
+## ------------------------------------------------------------ UI typography
+## A phone renders the same 1280x720 logical canvas on a much smaller panel, so
+## HUD and menu text scales up there while desktop keeps its authored sizes.
+const UI_PHONE_SCALE := 1.22
+## Layout-check hook: a value above zero forces a scale on any device.
+static var ui_scale_override := 0.0
+
+static func ui_scale() -> float:
+	if ui_scale_override > 0.0:
+		return ui_scale_override
+	if OS.has_feature("mobile") or DisplayServer.is_touchscreen_available():
+		return UI_PHONE_SCALE
+	return 1.0
+
+## Device-aware UI font size. The 12 px floor keeps every readable label legible.
+static func fs(px: int) -> int:
+	return maxi(12, int(round(float(px) * ui_scale())))
+
+## Shortens text down to the last word that still fits max_lines and appends an
+## ellipsis, so scaled-down phone layouts clip flavour text deliberately.
+static func fit_text(font: Font, text: String, width: float, font_size: int, max_lines: int) -> String:
+	if max_lines <= 0 or text.strip_edges() == "":
+		return ""
+	var clamped := font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, width, font_size, max_lines).y
+	var full := font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, width, font_size, -1).y
+	if full <= clamped:
+		return text
+	var lo := 0
+	var hi := text.length()
+	while lo < hi:
+		var mid := int((lo + hi + 1) / 2)
+		var probe := text.substr(0, mid).strip_edges() + "…"
+		var probe_full := font.get_multiline_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, width, font_size, -1).y
+		var probe_clamped := font.get_multiline_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, width, font_size, max_lines).y
+		if probe_full <= probe_clamped:
+			lo = mid
+		else:
+			hi = mid - 1
+	if lo <= 0:
+		return ""
+	var cut := text.substr(0, lo)
+	# Break on a word boundary so the ellipsis never lands inside a word.
+	var space := cut.rfind(" ")
+	if space > 0:
+		cut = cut.substr(0, space)
+	return cut.strip_edges() + "…"
+
 ## Set by the CampaignState autoload. Using a plain node reference keeps the
 ## gameplay scripts loadable by --check-only, where autoload globals do not
 ## exist, and keeps the house selection reachable from tools as well.
@@ -363,7 +411,7 @@ const UNITS := {
 		"producer": "barracks",
 		"weapon": "sniper",
 		"stealth": 120.0,
-		"tech": 3,
+		"tech": 5,
 	},
 	"sonic_tank": {
 		"name": "Sonic Tank",

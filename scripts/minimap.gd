@@ -6,6 +6,9 @@ extends Control
 
 var game
 var redraw_timer := 0.0
+## Tactical radar pings: expanding rings at an alert's world position.
+const PING_LIFE := 2.4
+var pings: Array = []
 
 func setup(g) -> void:
 	game = g
@@ -17,7 +20,17 @@ func map_rect() -> Rect2:
 	var side := minf(size.x, size.y)
 	return Rect2((size - Vector2(side, side)) * 0.5, Vector2(side, side))
 
+## Called by Game for "enemy approaching", base and harvester alerts.
+func ping(world_pos: Vector2, color := Color(1.0, 0.28, 0.18)) -> void:
+	pings.append({"p": world_pos, "c": color, "t": 0.0})
+	if pings.size() > 8:
+		pings.pop_front()
+	queue_redraw()
+
 func _process(delta: float) -> void:
+	for ping in pings:
+		ping["t"] = float(ping["t"]) + delta
+	pings = pings.filter(func(p): return float(p["t"]) < PING_LIFE)
 	redraw_timer += delta
 	var interval := 0.09 if (game == null or not game.has_power(GameDefs.PLAYER)) else 0.2
 	if redraw_timer >= interval:
@@ -93,6 +106,16 @@ func _draw() -> void:
 			var p: Vector2 = r.position + u.global_position / float(GameDefs.WORLD) * r.size
 			var col := GameDefs.team_color(u.team).lightened(0.28)
 			draw_rect(Rect2(p - Vector2(1.0, 1.0), Vector2(2.0, 2.0)), col)
+
+	# Alert pings: a hard contact on the glass, fading over PING_LIFE seconds.
+	for ping in pings:
+		var fade: float = clampf(float(ping["t"]) / PING_LIFE, 0.0, 1.0)
+		var pp: Vector2 = r.position + Vector2(ping["p"]) / float(GameDefs.WORLD) * r.size
+		var pc: Color = ping["c"]
+		var reach := 3.0 + fade * 17.0
+		draw_arc(pp, reach, 0.0, TAU, 22, Color(pc.r, pc.g, pc.b, (1.0 - fade) * 0.92), 2.0, true)
+		draw_arc(pp, reach * 0.55, 0.0, TAU, 18, Color(pc.r, pc.g, pc.b, (1.0 - fade) * 0.48), 1.2, true)
+		draw_circle(pp, 1.8, Color(pc.r, pc.g, pc.b, (1.0 - fade) * 0.95))
 
 	# Fine CRT scan lines, a single bright sweep, and a dark glass vignette.
 	# Dune's radar glass is black with fine warm-grey raster lines, not a green wash.

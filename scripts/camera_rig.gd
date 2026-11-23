@@ -25,6 +25,11 @@ var _pinch_anchor := Vector2.ZERO
 ## Game uses this to reject unit orders, placement taps and box selection.
 var _gesture_suppressed := false
 
+## Side-panel shift and the temporary seismic shake layered on top of it.
+var _panel_offset := Vector2.ZERO
+var _shake_left := 0.0
+var _shake_power := 0.0
+
 func _ready() -> void:
 	apply_default_zoom()
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -42,12 +47,46 @@ func apply_default_zoom() -> void:
 	max_zoom = base * 2.0
 	zoom = Vector2(base, base)
 	_sync_panel_offset()
+	_clamp_position()
 
 ## Shift the view left by half the side panel so the base sits in the middle of
 ## the playable strip, not the middle of the whole screen. Camera2D.offset is in
 ## world units and gets multiplied by zoom, so divide it back out.
 func _sync_panel_offset() -> void:
-	offset = Vector2(GameHUD.PANEL_WIDTH * 0.5 / zoom.x, 0.0)
+	_panel_offset = Vector2(GameHUD.PANEL_WIDTH * 0.5 / zoom.x, 0.0)
+	offset = _panel_offset
+
+## Keep the view centre inside the battlefield. Without this the camera can be
+## dragged far past an edge, so dragging back feels stuck while the invisible
+## overshoot is consumed. `position + offset` is the world point at screen
+## centre, which is what the panel offset shifts.
+func _clamp_position() -> void:
+	var half := get_viewport_rect().size * 0.5 / zoom.x
+	var world := float(GameDefs.MAP * GameDefs.TILE)
+	var mid := world * 0.5
+	var center := position + _panel_offset
+	center.x = clampf(center.x, minf(half.x, mid), maxf(world - half.x, mid))
+	center.y = clampf(center.y, minf(half.y, mid), maxf(world - half.y, mid))
+	position = center - _panel_offset
+
+## Brief seismic jolt for Sandworm surfacing. Purely visual: the camera base
+## position never moves, so pan and clamp behaviour is unchanged.
+func shake(duration: float, power: float) -> void:
+	_shake_left = maxf(_shake_left, duration)
+	_shake_power = maxf(_shake_power, power)
+
+func _update_shake(delta: float) -> void:
+	if _shake_left <= 0.0:
+		if offset != _panel_offset:
+			offset = _panel_offset
+		return
+	_shake_left = maxf(0.0, _shake_left - delta)
+	var falloff := clampf(_shake_left / 0.55, 0.0, 1.0)
+	var jolt := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_power * falloff
+	offset = _panel_offset + jolt
+	if _shake_left <= 0.0:
+		_shake_power = 0.0
+		offset = _panel_offset
 
 func _on_viewport_resized() -> void:
 	if not user_zoomed:
@@ -144,6 +183,7 @@ func _update_pinch() -> void:
 	# that was under the initial pinch centred under the fingers.
 	var viewport_half := get_viewport_rect().size * 0.5
 	position = _pinch_anchor - (midpoint - viewport_half) / z - offset
+	_clamp_position()
 	get_viewport().set_input_as_handled()
 
 func _apply_zoom_at(factor: float, screen_position: Vector2) -> void:
@@ -154,6 +194,7 @@ func _apply_zoom_at(factor: float, screen_position: Vector2) -> void:
 	_sync_panel_offset()
 	var viewport_half := get_viewport_rect().size * 0.5
 	position = anchor - (screen_position - viewport_half) / z - offset
+	_clamp_position()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -165,8 +206,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			zoom_by(0.9)
 	elif event is InputEventMouseMotion and panning:
 		position -= event.relative / zoom.x
+		_clamp_position()
 	elif event is InputEventScreenDrag and not pan_locked and not _gesture_suppressed:
 		position -= event.relative / zoom.x
+		_clamp_position()
 
 func _process(delta: float) -> void:
 	var dir := Vector2.ZERO
@@ -180,3 +223,5 @@ func _process(delta: float) -> void:
 		dir.y += 1.0
 	if dir != Vector2.ZERO:
 		position += dir.normalized() * pan_speed * delta / zoom.x
+		_clamp_position()
+	_update_shake(delta)

@@ -59,6 +59,10 @@ func _tick_orders(delta: float) -> void:
 						else:
 							state = "seek"
 		"to_refinery":
+			# A long haul home is exactly what the Carryall ferry is for. The
+			# request is ignored while another dropship already has this hull.
+			if not airborne and game != null:
+				game.maybe_request_ferry(self)
 			# Spice only changes hands at the refinery itself, never at whatever
 			# point the unit happens to stop on.
 			var refinery = game.nearest_building(global_position, team, "refinery")

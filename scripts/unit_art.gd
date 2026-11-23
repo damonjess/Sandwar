@@ -1,7 +1,7 @@
 class_name UnitArt
 extends RefCounted
 
-## 3D-baked unit art produced by tools/bake_units_3d.gd.
+## Blender Cycles unit art produced by tools/blender_bake_units.py.
 ##
 ## Vehicles use 16 horizontal facing cells. Infantry use an 8-row compass
 ## grid with four poses per row: idle, walk-left, walk-right and fire. The
@@ -37,6 +37,7 @@ const CELLS := {
 	"devastator": 66,
 	"deviator": 60,
 	"harvester": 62,
+	"carryall": 96,
 }
 
 const INFANTRY_IDS := ["infantry", "rocket", "fremen", "sardaukar", "saboteur"]
@@ -112,17 +113,15 @@ static func hud_material(team: int) -> ShaderMaterial:
 ## Direction index in the same convention as Unit.facing: 0 = east, positive
 ## angles turn south in Godot's screen coordinates.
 ##
-## The unit baker rotates the model with `rotation.y = -facing` while the
-## camera is fixed on the south-east 3/4 axis. That makes the first baked cell
-## one step clockwise from east, and the final cell the true east frame. The
-## runtime used to round directly, so every unit was one cell (22.5 degrees)
-## clockwise of its movement/target vector. Turret-head sheets are baked with
-## the opposite rotation and are handled separately in Building.
+## The baker looks at the model from the south (Blender -Y) and rotates it
+## counter-clockwise around +Z. Blender's +Y is north, which is Godot's -Y, so
+## a model rotation of +a shows a Godot facing of -a. Cell 0 is therefore the
+## true east frame; turret-head sheets are handled separately in Building.
 static func direction_index(angle: float, count: int) -> int:
 	if count <= 1:
 		return 0
 	var step := TAU / float(count)
-	return posmod(int(round(angle / step)) - 1, count)
+	return posmod(int(round(-angle / step)), count)
 
 static func frame_region(id: String, facing: float, anim := 0) -> Rect2:
 	var px := cell(id) * float(SCALE)

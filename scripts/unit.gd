@@ -19,6 +19,14 @@ var cooldown_time := 0.7
 var weapon := "small_arms"
 var radius := 8.0
 var dead := false
+## Set when a tracked vehicle runs this unit over, so the death FX is a dust
+## squish instead of a full explosion.
+var crushed := false
+## Carried under a Carryall: hidden, untouchable and ignored by ground traffic
+## and Sandworm vibration until it is set down again.
+var airborne := false
+## Swallowed by a Sandworm, so the death FX is a sand burst, not a fireball.
+var swallowed := false
 
 var move_target := Vector2.ZERO
 var nav_target := Vector2.ZERO
@@ -55,6 +63,12 @@ var splash_fraction := 0.0
 ## expires, then reverts to its original owner.
 var charm_timer := 0.0
 var charm_team := -1
+## Tracked hulls leave faint dust tracks on open sand; the heavy ones also puff
+## exhaust while driving. Infantry and wheeled scouts stay clean.
+const TRACKED_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "harvester"]
+const EXHAUST_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator"]
+const TREAD_SPACING := 14.0
+var _tread_accum := 0.0
 
 func configure(id: String, team_id: int, g) -> void:
 	type_id = id
@@ -75,6 +89,7 @@ func configure(id: String, team_id: int, g) -> void:
 	splash_fraction = float(cfg.get("splash_fraction", 0.0))
 	bob = randf() * TAU
 	anim_clock = randf() * TAU
+	_tread_accum = randf() * TREAD_SPACING
 	turret_facing = facing
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if UnitArt.has_art(id):
@@ -164,10 +179,12 @@ func set_destination(pos: Vector2) -> void:
 		path = []
 
 func take_damage(amount: float) -> void:
-	if dead:
+	if dead or airborne:
 		return
 	hp -= amount
 	flash = 1.0
+	if game != null:
+		game.on_unit_damaged(self)
 	if hp <= 0.0:
 		die()
 	queue_redraw()
@@ -195,6 +212,9 @@ func _process(delta: float) -> void:
 	flash = maxf(0.0, flash - delta * 4.0)
 	_tick_orders(delta)
 	_tick_combat(delta)
+	# Idle bodies fan out instead of sharing a pixel, as long as the step stays
+	# on open ground.
+	_settle_separation(delta)
 	queue_redraw()
 
 func _tick_orders(delta: float) -> void:
@@ -230,12 +250,14 @@ func _follow_path(delta: float) -> void:
 				has_move = false
 	if path.is_empty():
 		if global_position.distance_to(nav_target) <= 8.0:
+			_settle_at_destination()
 			has_move = false
 		else:
 			_advance_toward(nav_target, delta)
 		return
 	if path_i >= path.size():
 		path.clear()
+		_settle_at_destination()
 		has_move = false
 		return
 	var wp: Vector2 = path[path_i]
@@ -249,6 +271,7 @@ func _follow_path(delta: float) -> void:
 	_advance_toward(wp, delta)
 
 func _advance_toward(target: Vector2, delta: float) -> void:
+	var before := global_position
 	var offset := target - global_position
 	if offset.length() < 0.5:
 		return
@@ -257,16 +280,20 @@ func _advance_toward(target: Vector2, delta: float) -> void:
 	var move := _free_step(dir * step, dir)
 	if move == Vector2.ZERO:
 		move = _escape_buildings(step)
-	# Crowd pressure is only applied when it does not shove the unit into steel.
-	var shove := _separation() * step * 0.7
-	if not _blocked_at(global_position + move + shove):
-		move += shove
-	var next_pos := global_position + move
+	# Crowd pressure is only applied when the whole step stays on open ground.
+	var shove := _separation() * step
+	if not _safe_position(global_position + move + shove):
+		shove = Vector2.ZERO
+	var next_pos := global_position + move + shove
 	next_pos.x = clampf(next_pos.x, 16.0, float(GameDefs.WORLD) - 16.0)
 	next_pos.y = clampf(next_pos.y, 16.0, float(GameDefs.WORLD) - 16.0)
+	if not _safe_position(next_pos):
+		next_pos = global_position + move
 	global_position = next_pos
 	locomoting = true
+	_stamp_treads(global_position.distance_to(before))
 	facing = lerp_angle(facing, dir.angle(), 0.22)
+	_crush_enemies()
 
 ## A step of the wanted length that ends outside every building, turning further
 ## away from the target until one fits, so units slide around corners instead of
@@ -294,26 +321,136 @@ func _escape_buildings(step: float) -> Vector2:
 		return v.rotated(0.8) if _blocked_at(global_position + v) else v
 	return Vector2.ZERO
 
-func _blocked_at(p: Vector2) -> bool:
+## A position is safe when it is inside the map, not on a solid navigation
+## tile and not inside a structure's keep-out box. Every nudge is checked here,
+## so neither steering nor crowd pressure can bury a unit in steel.
+func _safe_position(p: Vector2) -> bool:
 	if p.x < 16.0 or p.y < 16.0 or p.x > float(GameDefs.WORLD) - 16.0 or p.y > float(GameDefs.WORLD) - 16.0:
-		return true
+		return false
+	if game.astar != null:
+		var tile: Vector2i = game.terrain.tile_of(p)
+		if game.astar.is_point_solid(tile):
+			return false
 	for b in game.buildings:
 		if not is_instance_valid(b) or b.dead:
 			continue
 		if b.world_rect().grow(radius * 0.8).has_point(p):
-			return true
-	return false
+			return false
+	return true
+
+func _blocked_at(p: Vector2) -> bool:
+	return not _safe_position(p)
 
 func _separation() -> Vector2:
 	var push := Vector2.ZERO
 	for other in game.units:
-		if other == self or not is_instance_valid(other) or other.dead:
+		if other == self or not is_instance_valid(other) or other.dead or other.airborne:
+			continue
+		# Heavy tracks never yield to enemy infantry: they are about to crush it.
+		if is_crusher() and other.team != team and other.damage_class() == "infantry":
 			continue
 		var d := global_position.distance_to(other.global_position)
-		var want: float = radius + other.radius
-		if d > 0.01 and d < want:
+		if d <= 0.01:
+			# Exactly stacked: split along the golden angle by roster index, so
+			# any number of bodies fans out evenly instead of sharing a pixel.
+			var my_i: int = game.units.find(self)
+			var other_i: int = game.units.find(other)
+			push += Vector2.RIGHT.rotated(float(my_i - other_i) * 2.399963)
+			continue
+		var want: float = radius + other.radius + 4.0
+		if d < want:
 			push += (global_position - other.global_position) / d * (1.0 - d / want)
 	return push.limit_length(1.0)
+
+## Smooth idle separation: overlapping bodies drift apart at a walking pace so a
+## squad ordered onto one point fans out shoulder-to-shoulder.
+func _settle_separation(delta: float) -> void:
+	if locomoting or has_move or attack_target != null:
+		return
+	var push := _separation()
+	if push.length() < 0.05:
+		return
+	var step := minf(speed * delta * 0.9, 3.0)
+	for dir in [push, Vector2(push.x, 0.0), Vector2(0.0, push.y)]:
+		var d: Vector2 = dir
+		if d.length() < 0.01:
+			continue
+		var p: Vector2 = global_position + d.normalized() * step
+		if _safe_position(p):
+			global_position = p
+			return
+
+## A group ordered onto one point cannot all stand on it. The first unit keeps
+## the spot; the rest slide to the nearest free shoulder and stop there instead
+## of jittering against each other for ever.
+func _settle_at_destination() -> void:
+	if _position_open(global_position):
+		return
+	var best := Vector2.ZERO
+	var best_d := 1.0e9
+	for ring in [1.0, 2.0]:
+		var fill: float = ring
+		for i in 8:
+			var a: float = TAU * float(i) / 8.0 + fill * 0.39
+			var p: Vector2 = nav_target + Vector2.RIGHT.rotated(a) * (radius * 2.0 + 6.0) * fill
+			if not _position_open(p):
+				continue
+			var d := p.distance_to(global_position)
+			if d < best_d:
+				best_d = d
+				best = p
+	if best_d < 1.0e9:
+		facing = (best - global_position).angle()
+		global_position = best
+
+func _position_open(p: Vector2) -> bool:
+	if not _safe_position(p):
+		return false
+	for other in game.units:
+		if other == self or not is_instance_valid(other) or other.dead or other.airborne:
+			continue
+		if p.distance_to(other.global_position) < radius + other.radius * 0.75:
+			return false
+	return true
+
+## Classic Dune 2000 tracks: heavy vehicles flatten enemy infantry instead of
+## being stopped by them.
+const CRUSH_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "harvester"]
+
+func is_crusher() -> bool:
+	return CRUSH_TYPES.has(type_id)
+
+func is_tracked() -> bool:
+	return TRACKED_TYPES.has(type_id)
+
+## Stamp a dusty twin track every few pixels driven over open sand only.
+func _stamp_treads(moved: float) -> void:
+	if game == null or game.scorch_layer == null or not is_tracked():
+		return
+	_tread_accum += moved
+	if _tread_accum < TREAD_SPACING:
+		return
+	_tread_accum = 0.0
+	var tile: Vector2i = game.terrain.tile_of(global_position)
+	if game.terrain.is_open_sand(tile):
+		game.scorch_layer.tread(global_position, facing, clampf(radius / 9.0, 0.7, 1.3))
+
+func _crush_enemies() -> void:
+	if not is_crusher():
+		return
+	for other in game.units.duplicate():
+		if other == self or not is_instance_valid(other) or other.dead:
+			continue
+		if other.team == team or other.damage_class() != "infantry":
+			continue
+		if global_position.distance_to(other.global_position) <= radius + other.radius * 0.45:
+			other.crushed_by(self)
+
+func crushed_by(crusher) -> void:
+	if dead:
+		return
+	crushed = true
+	die()
 
 func _tick_combat(delta: float) -> void:
 	# Rocket troopers carry two small tubes: the second missile follows the
@@ -451,11 +588,23 @@ func _draw() -> void:
 	if selected:
 		draw_arc(Vector2.ZERO, radius + 6.0, 0.0, TAU, 28, Color(0.55, 1.0, 0.65, 0.95), 2.0)
 	draw_baked_unit()
+	_draw_exhaust()
 	if hp < max_hp:
 		var w := radius * 2.6
 		var y := -radius - 9.0
 		draw_rect(Rect2(Vector2(-w * 0.5, y), Vector2(w, 3.0)), Color(0.0, 0.0, 0.0, 0.6))
 		draw_rect(Rect2(Vector2(-w * 0.5, y), Vector2(w * clampf(hp / max_hp, 0.0, 1.0), 3.0)), Color(0.4, 0.95, 0.4))
+
+## Soft exhaust puffs behind a heavy hull while it is actually moving.
+func _draw_exhaust() -> void:
+	if not EXHAUST_TYPES.has(type_id) or not locomoting:
+		return
+	var back := -Vector2.RIGHT.rotated(facing)
+	var perp := Vector2(-back.y, back.x)
+	for i in 3:
+		var ph := fmod(anim_clock * 1.7 + float(i) / 3.0, 1.0)
+		var p := back * (radius * 0.55 + ph * 9.0) + perp * (float(i) - 1.0) * 2.6 + Vector2(0.0, -ph * 3.0)
+		draw_circle(p, 2.0 + ph * 3.4, Color(0.20, 0.18, 0.15, (1.0 - ph) * 0.20))
 
 ## Draw the authoritative unit-sprites. There is deliberately no Sprite2D.rotation
 ## here: all headings are selected from baked direction cells, never a rotated

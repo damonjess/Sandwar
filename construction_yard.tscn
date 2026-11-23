@@ -5,7 +5,7 @@
 
 [node name="ConstructionYard" type="Node2D"]
 script = ExtResource("1_sv")
-art_top = -96.0
+art_top = -103.0
 structure_id = "cy"
 
 [node name="Housing" type="Sprite2D" parent="."]

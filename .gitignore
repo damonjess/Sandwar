@@ -1,0 +1,17 @@
+# Local Python tooling virtualenv — never commit
+.tools-venv/
+
+# Downloaded Piper voice models — large binaries, not shipped
+tools/voices/
+
+# Project-local portable Blender and raw bake frames — huge, rebuildable
+build/blender/
+build/blender_frames/
+
+# Python bytecode from the bake/generation tools
+__pycache__/
+*.pyc
+
+# Local export and test artifacts
+build/*.apk
+build/*.log

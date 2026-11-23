@@ -113,6 +113,8 @@ func take_damage(amount: float) -> void:
 	if dead:
 		return
 	hp -= amount
+	if game != null:
+		game.on_building_damaged(self)
 	if hp <= 0.0:
 		die()
 	queue_redraw()
@@ -135,6 +137,17 @@ func _process(delta: float) -> void:
 	if bool(cfg.get("power_dependent", false)) and type_id != "turret" and type_id != "rocketturret":
 		anim += delta
 		queue_redraw()
+	# Damaged structures keep their smoke alive even when nothing else about
+	# them redraws. Turrets and the trap already advance `anim` every frame.
+	if type_id != "wall" and type_id != "windtrap" and type_id != "turret" \
+			and type_id != "rocketturret" and hp < max_hp * 0.60:
+		anim += delta
+		queue_redraw()
+	if type_id == "refinery":
+		# Live refinery vapour needs a redraw even when nothing else changes.
+		anim += delta
+		queue_redraw()
+		return
 	if type_id == "windtrap":
 		# Soot and smoke pulse for the trap; the view animates its louvres.
 		anim += delta
@@ -180,8 +193,9 @@ func _process(delta: float) -> void:
 	var want: float = (target.global_position - global_position).angle()
 	if turret_cd > 0.0:
 		return
-	# A rocket leaves the tube only after the launcher has swung onto the target.
-	if type_id == "rocketturret" and absf(angle_difference(aim, want)) > AIM_TOLERANCE:
+	# Nothing fires until the barrel has swung onto the target, so a freshly
+	# built turret cannot loose a shot sideways at whatever it first saw.
+	if absf(angle_difference(aim, want)) > AIM_TOLERANCE:
 		return
 	turret_cd = float(cfg["cooldown"])
 	if type_id == "rocketturret":
@@ -200,9 +214,8 @@ func _update_turret_frame() -> void:
 	# The building-head baker rotates models with `rotation.y = +angle` and a
 	# fixed south camera. Positive Y rotation runs east -> north -> west ->
 	# south, the opposite of screen angle: cell 4 points north and cell 12
-	# points south. Negate the 2D aim angle before selecting the cell. The unit
-	# sheets use the opposite baker rotation and get their own offset in
-	# UnitArt.direction_index.
+	# points south. Negate the 2D aim angle before selecting the cell. Unit
+	# sprites use their own south-camera mapping in UnitArt.direction_index.
 	var f := posmod(int(round(-aim / TAU * 16.0)), 16)
 	turret_head.frame_coords = Vector2i(f, 0)
 
@@ -254,20 +267,41 @@ func _draw() -> void:
 		var arm := 12.0
 		for corner in [sel.position, Vector2(sel.end.x, sel.position.y), Vector2(sel.position.x, sel.end.y), sel.end]:
 			draw_line(corner, corner + Vector2(arm * (1.0 if corner.x < 0.0 else -1.0), 0.0), Color(1.0, 0.9, 0.5), 3.0)
-	if type_id == "windtrap" and hp < max_hp * 0.62:
+	# Every structure except a wall burns below 60% health. The puff count and
+	# spread grow with the footprint, so a 3x3 yard reads heavier than a 1x1
+	# turret instead of every building smoking the same three puffs.
+	if type_id != "wall" and hp < max_hp * 0.60:
 		var dmg := clampf(1.0 - hp / max_hp, 0.0, 1.0)
 		var box := Vector2(span) * float(GameDefs.TILE)
 		var top := -box.y * 0.5 + 4.0
-		for i in 3:
-			var ph := fmod(anim * 0.55 + float(i) * 0.33, 1.0)
-			var puff := Vector2(sin(float(i) * 2.1 + anim * 0.8) * 12.0, top - ph * 44.0)
-			draw_circle(puff, 7.0 + ph * 16.0, Color(0.10, 0.09, 0.08, (1.0 - ph) * 0.60 * dmg))
-			draw_circle(puff - Vector2(2.0, 2.0), 4.0 + ph * 8.0, Color(0.55, 0.52, 0.48, (1.0 - ph) * 0.22 * dmg))
+		var girth := clampf(float(maxi(span.x, span.y)) * 0.5, 0.75, 2.0)
+		var puffs := maxi(2, int(round(2.0 + girth * 1.6)))
+		for i in puffs:
+			var ph := fmod(anim * 0.55 + float(i) / float(puffs), 1.0)
+			var puff := Vector2(sin(float(i) * 2.1 + anim * 0.8) * 12.0 * girth, top - ph * 44.0 * girth)
+			draw_circle(puff, (7.0 + ph * 16.0) * girth, Color(0.10, 0.09, 0.08, (1.0 - ph) * 0.60 * dmg))
+			draw_circle(puff - Vector2(2.0, 2.0), (4.0 + ph * 8.0) * girth, Color(0.55, 0.52, 0.48, (1.0 - ph) * 0.22 * dmg))
 		if dmg > 0.45:
 			var flick := 0.75 + 0.25 * sin(anim * 9.0)
-			draw_circle(Vector2(0.0, top + 12.0), 9.0 * flick, Color(1.0, 0.50, 0.10, 0.65))
-			draw_circle(Vector2(0.0, top + 10.0), 4.6 * flick, Color(1.0, 0.88, 0.48, 0.85))
+			draw_circle(Vector2(0.0, top + 12.0), 9.0 * girth * flick, Color(1.0, 0.50, 0.10, 0.65))
+			draw_circle(Vector2(0.0, top + 10.0), 4.6 * girth * flick, Color(1.0, 0.88, 0.48, 0.85))
+	_draw_refinery_smoke()
 	_draw_health_bar()
+
+## Active refineries vent soft dark-grey vapour from both silo stacks.
+func _draw_refinery_smoke() -> void:
+	if type_id != "refinery" or game == null or not game.has_power(team):
+		return
+	var t := Time.get_ticks_msec() * 0.001
+	for stack in [Vector2(-31.0, -58.0), Vector2(10.0, -60.0)]:
+		for i in 4:
+			var ph := fmod(t * 0.16 + float(i) * 0.25 + (0.0 if stack.x < 0.0 else 0.12), 1.0)
+			var drift := sin(t * 0.9 + float(i) * 1.7) * (3.0 + ph * 6.0)
+			var p: Vector2 = stack + Vector2(drift, -ph * 36.0)
+			var r := 3.0 + ph * 8.0
+			draw_circle(p, r, Color(0.24, 0.22, 0.19, (1.0 - ph) * 0.18))
+			draw_circle(p - Vector2(1.0, 1.0), r * 0.55,
+				Color(0.42, 0.39, 0.34, (1.0 - ph) * 0.10))
 
 func _draw_health_bar() -> void:
 	var selected_now: bool = game != null and game.selected_build == self

@@ -19,6 +19,9 @@ var _new_button: TouchButton
 var _continue_button: TouchButton
 var _skirmish_button: TouchButton
 var _status_label: Label
+var _actions: Array = []
+var _action_focus := 0
+var _keyboard_nav := false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -43,8 +46,8 @@ func _build() -> void:
 	cards.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	cards.offset_left = 38.0
 	cards.offset_right = -38.0
-	cards.offset_top = 136.0
-	cards.offset_bottom = -166.0
+	cards.offset_top = 130.0
+	cards.offset_bottom = -176.0
 	cards.add_theme_constant_override("separation", 20)
 	cards.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(cards)
@@ -64,19 +67,19 @@ func _build() -> void:
 	_status_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_status_label.offset_left = 180.0
 	_status_label.offset_right = -180.0
-	_status_label.offset_top = -166.0
-	_status_label.offset_bottom = -148.0
+	_status_label.offset_top = -170.0
+	_status_label.offset_bottom = -146.0
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status_label.add_theme_font_size_override("font_size", 10)
-	_status_label.add_theme_color_override("font_color", Color(0.80, 0.68, 0.44, 0.92))
+	_status_label.add_theme_font_size_override("font_size", GameDefs.fs(13))
+	_status_label.add_theme_color_override("font_color", Color(0.90, 0.80, 0.58, 0.96))
 	add_child(_status_label)
 
 	var actions := HBoxContainer.new()
 	actions.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	actions.offset_left = 180.0
 	actions.offset_right = -180.0
-	actions.offset_top = -138.0
-	actions.offset_bottom = -74.0
+	actions.offset_top = -142.0
+	actions.offset_bottom = -76.0
 	actions.add_theme_constant_override("separation", 18)
 	actions.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(actions)
@@ -84,7 +87,7 @@ func _build() -> void:
 	_new_button = TouchButton.new()
 	_new_button.text = "NEW CAMPAIGN"
 	_new_button.subtext = "7 missions · conquer Arrakis"
-	_new_button.font_size = 16
+	_new_button.font_size = GameDefs.fs(15)
 	_new_button.primary = true
 	_new_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_new_button.custom_minimum_size = Vector2(260.0, 62.0)
@@ -93,7 +96,7 @@ func _build() -> void:
 
 	_continue_button = TouchButton.new()
 	_continue_button.text = "CONTINUE CAMPAIGN"
-	_continue_button.font_size = 16
+	_continue_button.font_size = GameDefs.fs(15)
 	_continue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_continue_button.custom_minimum_size = Vector2(260.0, 62.0)
 	_continue_button.pressed.connect(_continue_campaign)
@@ -102,11 +105,12 @@ func _build() -> void:
 	_skirmish_button = TouchButton.new()
 	_skirmish_button.text = "QUICK SKIRMISH"
 	_skirmish_button.subtext = "max tech · random opponent"
-	_skirmish_button.font_size = 16
+	_skirmish_button.font_size = GameDefs.fs(15)
 	_skirmish_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_skirmish_button.custom_minimum_size = Vector2(260.0, 62.0)
 	_skirmish_button.pressed.connect(_quick_skirmish)
 	actions.add_child(_skirmish_button)
+	_actions = [_new_button, _continue_button, _skirmish_button]
 
 	# Title, footer and corner brackets live on a top layer: a parent Control
 	# draws before its children, so drawing them on the root would put them
@@ -115,6 +119,69 @@ func _build() -> void:
 	chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(chrome)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _launching or not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if not key.pressed or key.echo:
+		return
+	var handled := true
+	match key.keycode:
+		KEY_LEFT:
+			_cycle_house(-1)
+		KEY_RIGHT:
+			_cycle_house(1)
+		KEY_UP:
+			_cycle_action(-1)
+		KEY_DOWN:
+			_cycle_action(1)
+		KEY_TAB:
+			_cycle_action(-1 if key.shift_pressed else 1)
+		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+			_activate_action()
+		_:
+			handled = false
+	if handled:
+		get_viewport().set_input_as_handled()
+
+func _cycle_house(step: int) -> void:
+	var order: Array = Factions.HOUSE_ORDER
+	if order.is_empty():
+		return
+	var index := order.find(_selected_house)
+	index = posmod(index + step, order.size())
+	_select_card(String(order[index]))
+	_show_keyboard_focus()
+
+func _cycle_action(step: int) -> void:
+	if _actions.is_empty():
+		return
+	for offset in range(1, _actions.size() + 1):
+		var index := posmod(_action_focus + step * offset, _actions.size())
+		var action = _actions[index]
+		if action != null and action.enabled:
+			_action_focus = index
+			break
+	_show_keyboard_focus()
+
+func _show_keyboard_focus() -> void:
+	_keyboard_nav = true
+	for index in _actions.size():
+		var action = _actions[index]
+		if action != null:
+			action.keyboard_focused = index == _action_focus
+
+func _activate_action() -> void:
+	if _actions.is_empty():
+		return
+	var action = _actions[_action_focus]
+	if action == null:
+		return
+	if not action.enabled:
+		_cycle_action(1)
+		return
+	action.pressed.emit()
 
 func _select_card(house: String) -> void:
 	if _launching or not Factions.exists(house):
@@ -135,6 +202,10 @@ func _update_actions() -> void:
 	var state = GameDefs.campaign
 	var has_save := state != null and bool(state.call("has_campaign_save"))
 	_continue_button.enabled = has_save
+	if not has_save and _action_focus == 1:
+		_action_focus = 0
+	if _keyboard_nav:
+		_show_keyboard_focus()
 	if has_save and state != null:
 		var summary := String(state.call("campaign_summary"))
 		_status_label.text = summary
@@ -202,18 +273,18 @@ class Chrome:
 		var title := "S A N D W A R"
 		draw_string(font, Vector2(0.0, title_y), title, HORIZONTAL_ALIGNMENT_CENTER, w, 42,
 			Color(0.94, 0.84, 0.63))
-		draw_string(font, Vector2(0.0, title_y + 25.0), "CHOOSE YOUR HOUSE", HORIZONTAL_ALIGNMENT_CENTER, w, 14,
-			Color(0.84, 0.68, 0.36))
+		draw_string(font, Vector2(0.0, title_y + 26.0), "CHOOSE YOUR HOUSE", HORIZONTAL_ALIGNMENT_CENTER, w,
+			GameDefs.fs(14), Color(0.94, 0.80, 0.48))
 		draw_line(Vector2(w * 0.5 - 250.0, title_y + 38.0), Vector2(w * 0.5 + 250.0, title_y + 38.0),
 			Color(0.62, 0.46, 0.22, 0.55), 1.0)
 		draw_line(Vector2(w * 0.5 - 130.0, title_y + 41.0), Vector2(w * 0.5 + 130.0, title_y + 41.0),
 			Color(0.26, 0.19, 0.11, 0.7), 1.0)
 
-		var foot_y := size.y - 38.0
-		draw_string(font, Vector2(0.0, foot_y), "SELECT A HOUSE  ·  NEW CAMPAIGN  ·  CONTINUE  ·  QUICK SKIRMISH", HORIZONTAL_ALIGNMENT_CENTER, w, 11,
-			Color(0.86, 0.72, 0.44, 0.92))
-		draw_string(font, Vector2(0.0, foot_y + 17.0), "Campaign progress auto-saves on every victory · Skirmish uses maximum tech",
-			HORIZONTAL_ALIGNMENT_CENTER, w, 10, Color(0.50, 0.47, 0.40, 0.9))
+		var foot_y := size.y - 40.0
+		draw_string(font, Vector2(0.0, foot_y), "ARROWS: HOUSE / ACTION   ·   ENTER: CONFIRM   ·   MOUSE / TOUCH", HORIZONTAL_ALIGNMENT_CENTER, w, GameDefs.fs(13),
+			Color(0.94, 0.82, 0.56, 0.96))
+		draw_string(font, Vector2(0.0, foot_y + 21.0), "Campaign progress auto-saves on every victory · Skirmish uses maximum tech",
+			HORIZONTAL_ALIGNMENT_CENTER, w, GameDefs.fs(13), Color(0.78, 0.72, 0.60, 0.96))
 		# Small brass corner brackets keep the screen framed like a Dune briefing.
 		var margin := 18.0
 		for corner in [Vector2(margin, margin), Vector2(w - margin, margin),
@@ -373,9 +444,10 @@ class HouseCard:
 			draw_circle(p, 2.6, Color(0.62, 0.48, 0.26))
 			draw_circle(p - Vector2(0.5, 0.6), 1.0, Color(0.96, 0.86, 0.62))
 
-		# Emblem.
-		var emblem_c := Vector2(w * 0.5, 78.0 - lift)
-		var emblem_r := minf(w * 0.145, 48.0)
+		# Emblem and identity block, sized from the card height so the enlarged
+		# mobile text blocks still fit above the roster.
+		var emblem_r := minf(w * 0.125, minf(32.0, h * 0.085))
+		var emblem_c := Vector2(w * 0.5, emblem_r + 22.0 - lift)
 		draw_circle(emblem_c, emblem_r + 8.0, Color(0.025, 0.025, 0.023, 0.9))
 		draw_arc(emblem_c, emblem_r + 8.0, 0.0, TAU, 48, Color(0.58, 0.45, 0.25, 0.8), 1.4)
 		draw_circle(emblem_c, emblem_r, Color(col.r * 0.10 + 0.02, col.g * 0.10 + 0.02, col.b * 0.10 + 0.02))
@@ -384,52 +456,84 @@ class HouseCard:
 		_draw_emblem(emblem_c, emblem_r * 0.82, col)
 
 		# Name and identity.
-		var name_y := 154.0 - lift
-		draw_string(font, Vector2(0.0, name_y), String(data["short"]), HORIZONTAL_ALIGNMENT_CENTER, w, 24,
-			Color(0.95, 0.90, 0.79))
-		draw_string(font, Vector2(0.0, name_y + 20.0), String(data["style"]).to_upper(),
-			HORIZONTAL_ALIGNMENT_CENTER, w, 9, Color(0.80, 0.66, 0.40))
+		var name_fs := 24
+		var style_fs := GameDefs.fs(12)
+		var summary_fs := GameDefs.fs(14)
+		var roster_fs := GameDefs.fs(13)
+		var tag_fs := GameDefs.fs(12)
+		var name_y := emblem_c.y + emblem_r + 22.0 - lift
+		draw_string(font, Vector2(0.0, name_y), String(data["short"]), HORIZONTAL_ALIGNMENT_CENTER, w, name_fs,
+			Color(0.97, 0.92, 0.80))
+		draw_string(font, Vector2(0.0, name_y + float(style_fs) + 8.0), String(data["style"]).to_upper(),
+			HORIZONTAL_ALIGNMENT_CENTER, w, style_fs, Color(0.92, 0.78, 0.46))
 		# Colour chip and exact hex.
 		var chip_w := 34.0
-		var chip_c := Vector2(w * 0.5 - 38.0, name_y + 38.0)
+		var chip_y := name_y + float(style_fs) + 22.0
+		var chip_c := Vector2(w * 0.5 - 38.0, chip_y)
 		draw_rect(Rect2(chip_c - Vector2(chip_w * 0.5, 5.0), Vector2(chip_w, 10.0)),
 			Color(col.r, col.g, col.b, 0.95))
 		draw_rect(Rect2(chip_c - Vector2(chip_w * 0.5, 5.0), Vector2(chip_w, 10.0)),
 			Color(0.02, 0.02, 0.02, 0.8), false, 1.0)
-		draw_string(font, Vector2(w * 0.5 - 13.0, name_y + 43.0), String(data["hex"]),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.66, 0.62, 0.52))
+		draw_string(font, Vector2(w * 0.5 - 13.0, chip_y + 4.0), String(data["hex"]),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, style_fs, Color(0.80, 0.75, 0.64))
 
-		# Tactical brief.
-		var text_y := name_y + 74.0
-		draw_multiline_string(font, Vector2(20.0, text_y), String(data["summary"]),
-			HORIZONTAL_ALIGNMENT_LEFT, w - 40.0, 11, 4, Color(0.72, 0.68, 0.59, 0.95))
-		draw_string(font, Vector2(0.0, text_y + 76.0), String(data["doctrine"]), HORIZONTAL_ALIGNMENT_CENTER, w, 9,
-			Color(0.86, 0.70, 0.40, 0.92))
-		draw_line(Vector2(20.0, h - 126.0), Vector2(w - 20.0, h - 126.0),
-			Color(0.50, 0.37, 0.20, 0.40), 1.0)
+		# Bottom-up roster and doctrine anchors, so no line can drift into another
+		# on a short phone card or a wide 16:9 desktop card.
+		var roster: Array = data["signature"]
+		var roster_line := float(roster_fs) + 3.0
+		var tag_y := h - 14.0
+		var tag := "SELECTED HOUSE" if current_house else "TAP TO SELECT"
+		var tag_col := Color(0.98, 0.82, 0.42, 0.96) if current_house else Color(0.76, 0.72, 0.62, 0.94)
+		var roster_last := tag_y - float(tag_fs) - 16.0
+		var roster_first := roster_last - roster_line * float(maxi(roster.size() - 1, 0))
+		var roster_head := roster_first - float(roster_fs) - 8.0
+		var divider_y := roster_head - 12.0
+		var doctrine_y := divider_y - 12.0
+
+		# Tactical brief fills whatever sits between the identity block and the
+		# doctrine line; the measured line count prevents any collision.
+		var summary_top := chip_y + float(style_fs) + 12.0
+		var summary_text := String(data["summary"])
+		var summary_lines := _fit_lines(font, summary_text, w - 40.0, summary_fs, 6,
+			doctrine_y - 16.0 - summary_top)
+		if summary_lines > 0:
+			var shown := GameDefs.fit_text(font, summary_text, w - 40.0, summary_fs, summary_lines)
+			draw_multiline_string(font, Vector2(20.0, summary_top + float(summary_fs)), shown,
+				HORIZONTAL_ALIGNMENT_LEFT, w - 40.0, summary_fs, summary_lines,
+				Color(0.90, 0.86, 0.76, 0.98))
+		draw_string(font, Vector2(0.0, doctrine_y), String(data["doctrine"]), HORIZONTAL_ALIGNMENT_CENTER, w,
+			GameDefs.fs(12), Color(0.94, 0.78, 0.44, 0.96))
+		draw_line(Vector2(20.0, divider_y), Vector2(w - 20.0, divider_y),
+			Color(0.56, 0.42, 0.23, 0.48), 1.0)
 
 		# Signature roster.
-		draw_string(font, Vector2(22.0, h - 105.0), "HOUSE ROSTER", HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
-			Color(0.62, 0.52, 0.34))
-		var roster: Array = data["signature"]
+		draw_string(font, Vector2(22.0, roster_head), "HOUSE ROSTER", HORIZONTAL_ALIGNMENT_LEFT, -1,
+			GameDefs.fs(12), Color(0.86, 0.74, 0.50))
 		for i in roster.size():
 			var unit_id := String(roster[i])
 			var unit_name := String(GameDefs.UNITS.get(unit_id, {}).get("name", unit_id))
-			var y := h - 85.0 + float(i) * 17.0
+			var uy := roster_first + float(i) * roster_line
 			draw_colored_polygon(PackedVector2Array([
-				Vector2(24.0, y - 4.0), Vector2(28.0, y - 8.0), Vector2(32.0, y - 4.0), Vector2(28.0, y),
+				Vector2(24.0, uy - 4.0), Vector2(28.0, uy - 8.0), Vector2(32.0, uy - 4.0), Vector2(28.0, uy),
 			]), Color(col.r, col.g, col.b, 0.95))
-			draw_string(font, Vector2(38.0, y), unit_name, HORIZONTAL_ALIGNMENT_LEFT, w - 58.0, 10,
-				Color(0.84, 0.80, 0.70))
+			draw_string(font, Vector2(38.0, uy), unit_name, HORIZONTAL_ALIGNMENT_LEFT, w - 58.0, roster_fs,
+				Color(0.92, 0.88, 0.78))
 
 		# Selection marker. The three action buttons below the cards launch the
 		# chosen mode; a tap on a banner only changes the selected House.
-		var tag := "SELECTED HOUSE" if current_house else "TAP TO SELECT"
-		var tag_col := Color(0.96, 0.80, 0.40, 0.92) if current_house else Color(0.62, 0.58, 0.49, 0.9)
-		draw_string(font, Vector2(0.0, h - 18.0), tag, HORIZONTAL_ALIGNMENT_CENTER, w, 9, tag_col)
+		draw_string(font, Vector2(0.0, tag_y), tag, HORIZONTAL_ALIGNMENT_CENTER, w, tag_fs, tag_col)
 
 		if hovered or pressing:
 			draw_rect(rect, Color(col.r, col.g, col.b, 0.5 if pressing else 0.28), false, 2.4)
+
+	## Largest line count (1..max_lines) whose measured height still fits the room.
+	func _fit_lines(font: Font, text: String, width: float, font_size: int, max_lines: int, room: float) -> int:
+		if text.strip_edges() == "":
+			return 0
+		for lines in range(max_lines, 0, -1):
+			if font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, width, font_size, lines).y <= room:
+				return lines
+		return 0
 
 	func _draw_emblem(c: Vector2, r: float, col: Color) -> void:
 		var gold := Color(0.86, 0.70, 0.38)

@@ -5,7 +5,7 @@
 
 [node name="Refinery" type="Node2D"]
 script = ExtResource("1_sv")
-art_top = -61.0
+art_top = -75.0
 structure_id = "refinery"
 
 [node name="Housing" type="Sprite2D" parent="."]

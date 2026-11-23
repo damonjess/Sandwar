@@ -33,6 +33,12 @@ const C_TILE_OFF := Color("11100e")
 const C_STEEL := Color("262a29")
 const C_STEEL_HI := Color("77817c")
 const C_DIGITAL := Color("8fffd2")
+# High-contrast mobile typography: warm cream body text, bright gold accents.
+const C_CREAM := Color("F7E7C0")
+const C_GOLD_BRIGHT := Color("FFD466")
+const C_STATUS := Color("F5E8CC")
+const C_INFO := Color("D8C39E")
+const C_OPTION_TEXT := Color("F4E6C8")
 
 var game
 var credits_label: Label
@@ -87,6 +93,20 @@ const STRUCTURE_ITEMS := [
 	["brush", "wall"],
 ]
 ## Units come from the player's House roster at runtime, not a fixed list.
+
+## Short labels for the sidebar tiles. They are sized to fit one line beside
+## the build portrait; the full name stays in each tile's tooltip.
+const TILE_NAMES := {
+	"windtrap": "WIND TRAP", "refinery": "REFINERY", "barracks": "BARRACKS",
+	"factory": "FACTORY", "turret": "GUN TURRET", "rocketturret": "ROCKET TURRET",
+	"slab": "CONCRETE", "wall": "WALL", "infantry": "INFANTRY",
+	"rocket": "ROCKET", "trike": "TRIKE", "raider_trike": "RAIDER TRIKE",
+	"quad": "QUAD", "tank": "SIEGE TANK", "atreides_tank": "ATREIDES TANK",
+	"harkonnen_tank": "HARK TANK", "ordos_tank": "ORDOS TANK",
+	"sonic_tank": "SONIC TANK", "devastator": "DEVASTATOR",
+	"deviator": "DEVIATOR", "harvester": "HARVESTER", "fremen": "FREMEN",
+	"sardaukar": "SARDAUKAR", "saboteur": "SABOTEUR",
+}
 
 # ------------------------------------------------------------------ widgets
 
@@ -478,11 +498,13 @@ class BuildTile:
 	const BOTTOM := Color("1a0c09")
 	const SAND_TEX := preload("res://assets/sprites/d2/terrain_sand.png")
 	const ROCK_TEX := preload("res://assets/sprites/d2/terrain_rock.png")
-	# #14100CCC plate, #F2C96B afford / #E05252 cannot-afford text.
-	const COST_PLATE := Color(20.0 / 255.0, 16.0 / 255.0, 12.0 / 255.0, 0.80)
+	# #14100CE6 plate, #F2C96B afford / #E05252 cannot-afford text.
+	const COST_PLATE := Color(20.0 / 255.0, 16.0 / 255.0, 12.0 / 255.0, 0.90)
 	const COST_OUTLINE := Color(0.025, 0.018, 0.012, 0.94)
 	const COST_GOLD := Color(242.0 / 255.0, 201.0 / 255.0, 107.0 / 255.0)
 	const COST_RED := Color(224.0 / 255.0, 82.0 / 255.0, 82.0 / 255.0)
+	const NAME_PLATE := Color(0.055, 0.030, 0.018, 0.96)
+	const NAME_RULE := Color(0.55, 0.37, 0.18, 0.90)
 
 	func can_cancel() -> bool:
 		return queue_count > 0 or ready_state
@@ -664,7 +686,7 @@ class BuildTile:
 		else:
 			var cap := caption.to_upper()
 			draw_string(get_theme_default_font(), Vector2(4.0, h * 0.55), cap, HORIZONTAL_ALIGNMENT_CENTER,
-				w - 8.0, 9, Color(0.88, 0.78, 0.58, 0.9))
+				w - 8.0, GameDefs.fs(12), Color(0.92, 0.83, 0.64, 0.95))
 		if not available:
 			draw_rect(rect, Color(0.02, 0.012, 0.008, 0.48))
 		if progress > 0.001 and not ready_state:
@@ -674,42 +696,66 @@ class BuildTile:
 		if kind != "unit":
 			_draw_status_grid()
 		draw_rect(rect, Color(0.08, 0.045, 0.025, 0.98), false, 1.0)
+		var font := get_theme_default_font()
+		# Name plate: the portrait is cropped hero art, so a solid bottom strip
+		# keeps every build and unit readable without shrinking the icon area.
+		if icon != null and caption != "":
+			var name_fs := GameDefs.fs(10)
+			var band_h := float(name_fs) + 5.0
+			var band := Rect2(2.0, h - band_h - 1.0, w - 4.0, band_h)
+			draw_rect(band, NAME_PLATE)
+			draw_line(Vector2(band.position.x, band.position.y),
+				Vector2(band.end.x, band.position.y), NAME_RULE, 1.0)
+			var name_col := GameHUD.C_CREAM if available else GameHUD.C_DIM
+			var name_text := GameDefs.fit_text(font, caption, band.size.x - 4.0, name_fs, 1)
+			var name_base := band.position.y + (band_h + font.get_ascent(name_fs) - font.get_descent(name_fs)) * 0.5
+			draw_string(font, Vector2(band.position.x + 2.0, name_base + 1.0), name_text,
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 4.0, name_fs, Color(0.0, 0.0, 0.0, 0.95))
+			draw_string(font, Vector2(band.position.x + 2.0, name_base), name_text,
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 4.0, name_fs, name_col)
 		if queue_count > 0:
 			var badge := str(queue_count)
-			var font := get_theme_default_font()
-			var bw := maxf(17.0, font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 7.0)
-			var reserve := 31.0 if can_cancel() else 3.0
-			var br := Rect2(w - bw - reserve, 3.0, bw, 14.0)
-			draw_rect(br, Color(0.035, 0.020, 0.012, 0.96))
-			draw_rect(br, Color(0.86, 0.68, 0.34, 0.94), false, 1.0)
-			draw_string(font, br.position + Vector2(3.5, 11.0), badge, HORIZONTAL_ALIGNMENT_CENTER,
-				bw - 7.0, 10, Color(1.0, 0.95, 0.76))
+			var badge_fs := GameDefs.fs(13)
+			var bw := maxf(22.0, font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_fs).x + 9.0)
+			var bh := float(badge_fs) + 8.0
+			var reserve := 35.0 if can_cancel() else 3.0
+			var br := Rect2(w - bw - reserve, 2.0, bw, bh)
+			draw_rect(br, Color(0.035, 0.020, 0.012, 0.97))
+			draw_rect(br, Color(0.90, 0.72, 0.36, 0.98), false, 1.0)
+			var baseline := br.position.y + (bh + font.get_ascent(badge_fs) - font.get_descent(badge_fs)) * 0.5
+			draw_string(font, Vector2(br.position.x, baseline), badge, HORIZONTAL_ALIGNMENT_CENTER,
+				bw, badge_fs, Color(1.0, 0.95, 0.76))
 		if can_cancel():
 			var cr := cancel_rect()
-			var pulse := 1.0 if cancel_flash > 0.0 else 0.82
-			draw_circle(cr.get_center(), 8.0, Color(0.20, 0.035, 0.018, 0.96))
-			draw_circle(cr.get_center(), 8.0, Color(1.0, 0.48, 0.26, pulse), false, 1.4)
+			var pulse := 1.0 if cancel_flash > 0.0 else 0.84
 			var c := cr.get_center()
-			draw_line(c + Vector2(-3.6, -3.6), c + Vector2(3.6, 3.6), Color(1.0, 0.92, 0.72, pulse), 1.8)
-			draw_line(c + Vector2(3.6, -3.6), c + Vector2(-3.6, 3.6), Color(1.0, 0.92, 0.72, pulse), 1.8)
+			draw_circle(c, 10.5, Color(0.16, 0.028, 0.014, 0.97))
+			draw_circle(c, 10.0, Color(1.0, 0.50, 0.26, pulse), false, 1.8)
+			draw_circle(c, 9.0, Color(0.13, 0.022, 0.012, 0.96))
+			draw_line(c + Vector2(-4.6, -4.6), c + Vector2(4.6, 4.6), Color(1.0, 0.94, 0.76, pulse), 2.4)
+			draw_line(c + Vector2(4.6, -4.6), c + Vector2(-4.6, 4.6), Color(1.0, 0.94, 0.76, pulse), 2.4)
 		if ready_state:
 			var pulse := 0.58 + 0.42 * absf(sin(Time.get_ticks_msec() * 0.006))
 			draw_rect(rect, Color(1.0, 0.84, 0.28, 0.52 + 0.38 * pulse), false, 1.6)
-			var band := Rect2(3.0, h * 0.40, w - 6.0, 12.0)
-			draw_rect(band, Color(0.045, 0.030, 0.012, 0.88))
-			draw_string(get_theme_default_font(), band.position + Vector2(0.0, 9.5), "READY",
-				HORIZONTAL_ALIGNMENT_CENTER, band.size.x, 9, Color(1.0, 0.87, 0.32, pulse))
-		# Bottom-right price plate: clear of the top-left status grid, the
-		# top-right queue/cancel controls, the centre progress/READY band and
-		# the icon's contact shadow. The text redraws every HUD refresh.
-		if cost > 0:
+			var ready_fs := GameDefs.fs(13)
+			var band_h := float(ready_fs) + 6.0
+			var badge_bottom := 2.0 + float(GameDefs.fs(13)) + 8.0 if queue_count > 0 else 0.0
+			var band := Rect2(3.0, maxf(h * 0.32, badge_bottom + 2.0), w - 6.0, band_h)
+			draw_rect(band, Color(0.045, 0.030, 0.012, 0.92))
+			var baseline := band.position.y + (band_h + font.get_ascent(ready_fs) - font.get_descent(ready_fs)) * 0.5
+			draw_string(font, Vector2(band.position.x, baseline), "READY",
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x, ready_fs, Color(1.0, 0.87, 0.32, pulse))
+		# Top-right price plate: the bottom belongs to the name plate now, and
+		# the already-paid price yields whenever a queue or READY badge needs
+		# that corner. The text redraws every HUD refresh.
+		if cost > 0 and not can_cancel():
 			var cost_font := get_theme_default_font()
-			var cost_fs := 10 if h >= 58.0 else 9
+			var cost_fs := GameDefs.fs(13)
 			var cost_text := "$%d" % cost
 			var cost_size := cost_font.get_string_size(cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs)
-			var plate_w := maxf(22.0, ceilf(cost_size.x) + 7.0)
-			var plate_h := float(cost_fs) + 5.0
-			var plate := Rect2(w - plate_w - 3.0, h - plate_h - 3.0, plate_w, plate_h)
+			var plate_w := maxf(26.0, ceilf(cost_size.x) + 9.0)
+			var plate_h := float(cost_fs) + 6.0
+			var plate := Rect2(w - plate_w - 3.0, 3.0, plate_w, plate_h)
 			var affordable := true
 			if game != null:
 				affordable = int(game.credits[0]) >= cost
@@ -717,9 +763,9 @@ class BuildTile:
 			draw_rect(plate, COST_PLATE)
 			draw_rect(plate, COST_OUTLINE, false, 1.0)
 			var baseline := plate.position.y + (plate_h + cost_font.get_ascent(cost_fs) - cost_font.get_descent(cost_fs)) * 0.5
-			var tx := plate.position.x + 3.5
+			var tx := plate.position.x + 4.5
 			draw_string(cost_font, Vector2(tx + 1.0, baseline + 1.0), cost_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, COST_OUTLINE)
+				HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, Color(0.0, 0.0, 0.0, 0.95))
 			draw_string(cost_font, Vector2(tx, baseline), cost_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, cost_col)
 		if cancel_flash > 0.0:
@@ -747,13 +793,13 @@ func _inset_style() -> StyleBoxFlat:
 	sb.set_border_width_all(2)
 	return sb
 
-func _button_style(bg: Color) -> StyleBoxFlat:
+func _button_style(bg: Color, h_margin := 5.0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_color = C_FRAME
 	sb.set_border_width_all(1)
-	sb.content_margin_left = 5.0
-	sb.content_margin_right = 5.0
+	sb.content_margin_left = h_margin
+	sb.content_margin_right = h_margin
 	sb.content_margin_top = 2.0
 	sb.content_margin_bottom = 2.0
 	return sb
@@ -921,22 +967,29 @@ func _build_screen_overlay() -> void:
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(ui)
 
+	var status_fs := GameDefs.fs(16)
+	var info_fs := GameDefs.fs(13)
+	var footer_pad := 6.0
 	var footer_style := StyleBoxFlat.new()
-	footer_style.bg_color = Color(0.055, 0.032, 0.020, 0.82)
-	footer_style.border_color = Color(0.56, 0.40, 0.20, 0.72)
+	footer_style.bg_color = Color(0.045, 0.028, 0.018, 0.90)
+	footer_style.border_color = Color(0.62, 0.45, 0.23, 0.80)
 	footer_style.set_border_width_all(1)
-	footer_style.content_margin_left = 9.0
-	footer_style.content_margin_right = 9.0
-	footer_style.content_margin_top = 3.0
-	footer_style.content_margin_bottom = 3.0
+	footer_style.content_margin_left = 10.0
+	footer_style.content_margin_right = 10.0
+	footer_style.content_margin_top = footer_pad
+	footer_style.content_margin_bottom = footer_pad
 	screen_footer = PanelContainer.new()
 	screen_footer.anchor_left = 0.0
 	screen_footer.anchor_top = 1.0
 	screen_footer.anchor_right = 1.0
 	screen_footer.anchor_bottom = 1.0
 	screen_footer.offset_left = 12.0
-	screen_footer.offset_right = -PANEL_WIDTH - 222.0
-	screen_footer.offset_top = -48.0
+	screen_footer.offset_right = -PANEL_WIDTH - 262.0
+	# The panel grows with the font metrics so the two lines never clip.
+	var status_h := float(status_fs) + 5.0
+	var info_h := float(info_fs) + 4.0
+	var footer_h := status_h + info_h + footer_pad * 2.0 + 2.0
+	screen_footer.offset_top = -(footer_h + 8.0)
 	screen_footer.offset_bottom = -8.0
 	screen_footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen_footer.add_theme_stylebox_override("panel", footer_style)
@@ -945,24 +998,27 @@ func _build_screen_overlay() -> void:
 	footer_col.add_theme_constant_override("separation", 0)
 	screen_footer.add_child(footer_col)
 	status_label = Label.new()
-	status_label.add_theme_font_size_override("font_size", 11)
-	status_label.add_theme_color_override("font_color", C_GOLD)
-	status_label.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.92))
+	status_label.add_theme_font_size_override("font_size", status_fs)
+	status_label.add_theme_color_override("font_color", C_STATUS)
+	status_label.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.95))
 	status_label.add_theme_constant_override("shadow_offset_x", 1)
-	status_label.add_theme_constant_override("shadow_offset_y", 1)
+	status_label.add_theme_constant_override("shadow_offset_y", 2)
 	status_label.clip_text = true
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	status_label.custom_minimum_size = Vector2(0.0, 19.0)
+	status_label.custom_minimum_size = Vector2(0.0, status_h)
 	footer_col.add_child(status_label)
 	info_label = Label.new()
-	info_label.add_theme_font_size_override("font_size", 9)
-	info_label.add_theme_color_override("font_color", C_DIM)
+	info_label.add_theme_font_size_override("font_size", info_fs)
+	info_label.add_theme_color_override("font_color", C_INFO)
+	info_label.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.90))
+	info_label.add_theme_constant_override("shadow_offset_x", 1)
+	info_label.add_theme_constant_override("shadow_offset_y", 1)
 	info_label.clip_text = true
 	info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	info_label.custom_minimum_size = Vector2(0.0, 11.0)
+	info_label.custom_minimum_size = Vector2(0.0, info_h)
 	footer_col.add_child(info_label)
 	log_label = Label.new()
-	log_label.add_theme_font_size_override("font_size", 9)
+	log_label.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	log_label.visible = false
 	ui.add_child(log_label)
 
@@ -973,12 +1029,14 @@ func _build_screen_overlay() -> void:
 	cancel_button.anchor_top = 1.0
 	cancel_button.anchor_right = 1.0
 	cancel_button.anchor_bottom = 1.0
-	cancel_button.offset_left = -PANEL_WIDTH - 116.0
+	cancel_button.offset_left = -PANEL_WIDTH - 124.0
 	cancel_button.offset_right = -PANEL_WIDTH - 12.0
-	cancel_button.offset_top = -78.0
-	cancel_button.offset_bottom = -50.0
-	cancel_button.add_theme_font_size_override("font_size", 9)
-	cancel_button.add_theme_color_override("font_color", C_TEXT)
+	cancel_button.offset_top = -84.0
+	cancel_button.offset_bottom = -52.0
+	cancel_button.add_theme_font_size_override("font_size", GameDefs.fs(13))
+	cancel_button.add_theme_color_override("font_color", C_OPTION_TEXT)
+	cancel_button.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	cancel_button.add_theme_constant_override("outline_size", 2)
 	cancel_button.add_theme_stylebox_override("normal", _button_style(Color(0.30, 0.19, 0.10)))
 	cancel_button.add_theme_stylebox_override("hover", _button_style(Color(0.42, 0.28, 0.14)))
 	cancel_button.add_theme_stylebox_override("pressed", _button_style(Color(0.20, 0.12, 0.06)))
@@ -986,14 +1044,15 @@ func _build_screen_overlay() -> void:
 	cancel_button.pressed.connect(func(): _tap(); game.cancel_current())
 	ui.add_child(cancel_button)
 
+	var quick_h := maxf(40.0, float(GameDefs.fs(14)) + 22.0)
 	quick_strip = HBoxContainer.new()
 	quick_strip.anchor_left = 1.0
 	quick_strip.anchor_top = 1.0
 	quick_strip.anchor_right = 1.0
 	quick_strip.anchor_bottom = 1.0
-	quick_strip.offset_left = -PANEL_WIDTH - 198.0
+	quick_strip.offset_left = -PANEL_WIDTH - 232.0
 	quick_strip.offset_right = -PANEL_WIDTH - 12.0
-	quick_strip.offset_top = -39.0
+	quick_strip.offset_top = -(quick_h + 8.0)
 	quick_strip.offset_bottom = -8.0
 	quick_strip.add_theme_constant_override("separation", 3)
 	ui.add_child(quick_strip)
@@ -1002,13 +1061,15 @@ func _build_screen_overlay() -> void:
 		b.text = String(spec[0])
 		b.tooltip_text = String(spec[1])
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(40.0, 28.0)
+		b.custom_minimum_size = Vector2(46.0, quick_h)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 9)
-		b.add_theme_color_override("font_color", C_TEXT)
-		b.add_theme_stylebox_override("normal", _button_style(Color(0.15, 0.10, 0.055, 0.84)))
-		b.add_theme_stylebox_override("hover", _button_style(Color(0.30, 0.21, 0.10, 0.94)))
-		b.add_theme_stylebox_override("pressed", _button_style(Color(0.38, 0.28, 0.13, 0.96)))
+		b.add_theme_font_size_override("font_size", GameDefs.fs(14))
+		b.add_theme_color_override("font_color", C_OPTION_TEXT)
+		b.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+		b.add_theme_constant_override("outline_size", 1)
+		b.add_theme_stylebox_override("normal", _button_style(Color(0.15, 0.10, 0.055, 0.90), 3.0))
+		b.add_theme_stylebox_override("hover", _button_style(Color(0.30, 0.21, 0.10, 0.96), 3.0))
+		b.add_theme_stylebox_override("pressed", _button_style(Color(0.38, 0.28, 0.13, 0.98), 3.0))
 		var method := String(spec[2])
 		if method == "toggle_box":
 			box_button = b
@@ -1033,9 +1094,11 @@ func _build_top_bar() -> void:
 	options_button.text = "OPTIONS"
 	options_button.focus_mode = Control.FOCUS_NONE
 	options_button.position = Vector2(12.0, 10.0)
-	options_button.size = Vector2(100.0, 32.0)
-	options_button.add_theme_font_size_override("font_size", 11)
-	options_button.add_theme_color_override("font_color", C_TEXT)
+	options_button.size = Vector2(112.0, 40.0)
+	options_button.add_theme_font_size_override("font_size", GameDefs.fs(14))
+	options_button.add_theme_color_override("font_color", C_OPTION_TEXT)
+	options_button.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	options_button.add_theme_constant_override("outline_size", 2)
 	options_button.add_theme_stylebox_override("normal", _button_style(Color(0.12, 0.14, 0.13, 0.94)))
 	options_button.add_theme_stylebox_override("hover", _button_style(Color(0.23, 0.25, 0.22, 0.98)))
 	options_button.add_theme_stylebox_override("pressed", _button_style(Color(0.06, 0.08, 0.07, 0.98)))
@@ -1045,10 +1108,10 @@ func _build_top_bar() -> void:
 	objective_plate = ObjectivePlate.new()
 	objective_plate.anchor_left = 0.0
 	objective_plate.anchor_right = 1.0
-	objective_plate.offset_left = 330.0
+	objective_plate.offset_left = 200.0
 	objective_plate.offset_right = -PANEL_WIDTH - 222.0
 	objective_plate.offset_top = 7.0
-	objective_plate.offset_bottom = 41.0
+	objective_plate.offset_bottom = 49.0
 	objective_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	objective_plate.visible = false
 	top.add_child(objective_plate)
@@ -1056,17 +1119,19 @@ func _build_top_bar() -> void:
 	mission_banner = Label.new()
 	mission_banner.anchor_left = 0.0
 	mission_banner.anchor_right = 1.0
-	mission_banner.offset_left = 338.0
+	mission_banner.offset_left = 208.0
 	mission_banner.offset_right = -PANEL_WIDTH - 230.0
-	mission_banner.offset_top = 11.0
-	mission_banner.offset_bottom = 38.0
+	mission_banner.offset_top = 9.0
+	mission_banner.offset_bottom = 47.0
 	mission_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mission_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	mission_banner.add_theme_font_size_override("font_size", 11)
-	mission_banner.add_theme_color_override("font_color", C_GOLD)
-	mission_banner.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.92))
+	mission_banner.add_theme_font_size_override("font_size", GameDefs.fs(16))
+	mission_banner.add_theme_color_override("font_color", C_CREAM)
+	mission_banner.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.98))
+	mission_banner.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.96))
+	mission_banner.add_theme_constant_override("outline_size", 2)
 	mission_banner.add_theme_constant_override("shadow_offset_x", 1)
-	mission_banner.add_theme_constant_override("shadow_offset_y", 1)
+	mission_banner.add_theme_constant_override("shadow_offset_y", 2)
 	mission_banner.clip_text = true
 	mission_banner.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	mission_banner.visible = false
@@ -1077,8 +1142,9 @@ func _build_top_bar() -> void:
 	toast_plate.anchor_right = 0.5
 	toast_plate.offset_left = -340.0
 	toast_plate.offset_right = 340.0
-	toast_plate.offset_top = 48.0
-	toast_plate.offset_bottom = 84.0
+	var toast_fs := GameDefs.fs(17)
+	toast_plate.offset_top = 54.0
+	toast_plate.offset_bottom = 54.0 + ThemeDB.fallback_font.get_height(toast_fs) * 2.0 + 12.0
 	toast_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	toast_plate.visible = false
 	toast_plate.z_index = 2
@@ -1091,11 +1157,15 @@ func _build_top_bar() -> void:
 	toast_label.offset_bottom = -4.0
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	toast_label.add_theme_font_size_override("font_size", 11)
-	toast_label.add_theme_color_override("font_color", C_TEXT)
-	toast_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.95))
+	toast_label.add_theme_font_size_override("font_size", toast_fs)
+	toast_label.add_theme_color_override("font_color", C_CREAM)
+	toast_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.98))
+	toast_label.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.96))
+	toast_label.add_theme_constant_override("outline_size", 2)
 	toast_label.add_theme_constant_override("shadow_offset_x", 1)
-	toast_label.add_theme_constant_override("shadow_offset_y", 1)
+	toast_label.add_theme_constant_override("shadow_offset_y", 2)
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_label.max_lines_visible = 2
 	toast_label.clip_text = true
 	toast_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1122,7 +1192,7 @@ func _build_top_bar() -> void:
 	credits_label.offset_bottom = -3.0
 	credits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	credits_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	credits_label.add_theme_font_size_override("font_size", 19)
+	credits_label.add_theme_font_size_override("font_size", GameDefs.fs(19))
 	credits_label.add_theme_color_override("font_color", C_DIGITAL)
 	credits_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.12, 0.08, 0.95))
 	credits_label.add_theme_constant_override("shadow_offset_x", 0)
@@ -1130,8 +1200,8 @@ func _build_top_bar() -> void:
 	credits_plate.add_child(credits_label)
 
 	options_popup = PanelContainer.new()
-	options_popup.position = Vector2(12.0, 48.0)
-	options_popup.size = Vector2(250.0, 334.0)
+	options_popup.position = Vector2(12.0, 54.0)
+	options_popup.size = Vector2(286.0, 392.0)
 	options_popup.z_index = 80
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.07, 0.07, 0.06, 0.985)
@@ -1149,35 +1219,35 @@ func _build_top_bar() -> void:
 	options_popup.add_child(opt_col)
 	var opt_title := Label.new()
 	opt_title.text = "COMMAND OPTIONS"
-	opt_title.add_theme_font_size_override("font_size", 14)
-	opt_title.add_theme_color_override("font_color", C_GOLD)
+	opt_title.add_theme_font_size_override("font_size", GameDefs.fs(15))
+	opt_title.add_theme_color_override("font_color", C_GOLD_BRIGHT)
 	opt_col.add_child(opt_title)
 	var opt_hint := Label.new()
 	opt_hint.text = "Drag to pan. Pinch to zoom. Tap a unit, then the ground."
-	opt_hint.add_theme_font_size_override("font_size", 10)
-	opt_hint.add_theme_color_override("font_color", C_DIM)
+	opt_hint.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	opt_hint.add_theme_color_override("font_color", C_INFO)
 	opt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	opt_col.add_child(opt_hint)
 	var resume := TouchButton.new()
 	resume.text = "RESUME"
 	resume.primary = true
-	resume.font_size = 11
-	resume.custom_minimum_size = Vector2(0.0, 28.0)
+	resume.font_size = GameDefs.fs(14)
+	resume.custom_minimum_size = Vector2(0.0, 36.0)
 	resume.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	resume.pressed.connect(func(): _tap(); options_popup.visible = false)
 	opt_col.add_child(resume)
 	briefing_button = TouchButton.new()
 	briefing_button.text = "MISSION BRIEFING"
 	briefing_button.tooltip_text = "Review the Mentat orders and primary objective"
-	briefing_button.font_size = 10
-	briefing_button.custom_minimum_size = Vector2(0.0, 28.0)
+	briefing_button.font_size = GameDefs.fs(13)
+	briefing_button.custom_minimum_size = Vector2(0.0, 36.0)
 	briefing_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	briefing_button.pressed.connect(func(): _tap(); _open_mission_briefing())
 	opt_col.add_child(briefing_button)
 	var restart := TouchButton.new()
 	restart.text = "RESTART BATTLE"
-	restart.font_size = 10
-	restart.custom_minimum_size = Vector2(0.0, 28.0)
+	restart.font_size = GameDefs.fs(13)
+	restart.custom_minimum_size = Vector2(0.0, 36.0)
 	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	restart.pressed.connect(func(): _tap(); game.restart())
 	opt_col.add_child(restart)
@@ -1191,16 +1261,16 @@ func _build_top_bar() -> void:
 	var change_house := TouchButton.new()
 	change_house.text = "CHANGE HOUSE"
 	change_house.tooltip_text = "Return to the House Selection / main menu"
-	change_house.font_size = 9
-	change_house.custom_minimum_size = Vector2(0.0, 30.0)
+	change_house.font_size = GameDefs.fs(12)
+	change_house.custom_minimum_size = Vector2(0.0, 36.0)
 	change_house.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	change_house.pressed.connect(func(): _tap(); _open_house_select())
 	nav.add_child(change_house)
 	var main_menu := TouchButton.new()
 	main_menu.text = "MAIN MENU"
 	main_menu.tooltip_text = "Leave the battle and choose a House"
-	main_menu.font_size = 9
-	main_menu.custom_minimum_size = Vector2(0.0, 30.0)
+	main_menu.font_size = GameDefs.fs(12)
+	main_menu.custom_minimum_size = Vector2(0.0, 36.0)
 	main_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_menu.pressed.connect(func(): _tap(); _open_house_select())
 	nav.add_child(main_menu)
@@ -1208,9 +1278,9 @@ func _build_top_bar() -> void:
 	# Deliberately tucked below the normal navigation, in the testing corner.
 	debug_win_button = TouchButton.new()
 	debug_win_button.text = "DEBUG: WIN MISSION"
-	debug_win_button.font_size = 9
+	debug_win_button.font_size = GameDefs.fs(12)
 	debug_win_button.accent = Color(0.92, 0.38, 0.22)
-	debug_win_button.custom_minimum_size = Vector2(0.0, 30.0)
+	debug_win_button.custom_minimum_size = Vector2(0.0, 36.0)
 	debug_win_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	debug_win_button.tooltip_text = "Testing helper: immediately complete this mission"
 	debug_win_button.pressed.connect(func(): _tap(); options_popup.visible = false; game.debug_win_mission())
@@ -1218,8 +1288,8 @@ func _build_top_bar() -> void:
 
 	var test_note := Label.new()
 	test_note.text = "TESTING HELPER — FORCE MISSION VICTORY"
-	test_note.add_theme_font_size_override("font_size", 8)
-	test_note.add_theme_color_override("font_color", Color(0.66, 0.39, 0.29))
+	test_note.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	test_note.add_theme_color_override("font_color", Color(0.82, 0.52, 0.38))
 	test_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	opt_col.add_child(test_note)
 
@@ -1382,9 +1452,7 @@ func _add_build_tile(column: VBoxContainer, item: Array) -> void:
 	buttons.append(tile)
 
 func _caption_for(id: String, fallback: String) -> String:
-	if id == "rocket":
-		return "TROOPER"
-	return fallback.to_upper()
+	return String(TILE_NAMES.get(id, fallback)).to_upper()
 
 func _on_secondary(kind: String, id: String) -> void:
 	_tap()
@@ -1449,7 +1517,7 @@ func show_result(win: bool, body: String, buttons: Array = [], title := "") -> v
 		var b := TouchButton.new()
 		b.text = String(spec.get("text", "CONTINUE"))
 		b.primary = bool(spec.get("primary", false))
-		b.font_size = 18
+		b.font_size = GameDefs.fs(18)
 		b.accent = GameDefs.team_color(0)
 		b.custom_minimum_size = Vector2(400.0, 56.0)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1470,7 +1538,7 @@ func refresh() -> void:
 	var out: float = game.power_out(0)
 	var used: float = game.power_used(0)
 	info_label.text = "UNITS %d   SPICE %d   GRID %d/%d" % [game.unit_count(0), game.harvested, int(out), int(used)]
-	info_label.add_theme_color_override("font_color", C_GOLD if out + 0.01 >= used else Color(0.95, 0.38, 0.30))
+	info_label.add_theme_color_override("font_color", C_INFO if out + 0.01 >= used else Color(0.98, 0.48, 0.34))
 	var msgs: Array = game.recent_messages()
 	log_label.text = String(msgs[msgs.size() - 1]) if not msgs.is_empty() else ""
 	status_label.text = game.hud_status()
@@ -1489,8 +1557,8 @@ func refresh() -> void:
 				int(m.get("tier", 1)), CampaignMissions.TIER_COUNT,
 				String(m.get("region_name", "ARRAKIS")).to_upper(), progress,
 			]
-			var hc := GameDefs.team_color(0).lightened(0.30)
-			mission_banner.add_theme_color_override("font_color", hc)
+			mission_banner.add_theme_color_override("font_color", C_CREAM)
+			objective_plate.accent = C_GOLD_BRIGHT
 	cancel_button.visible = game.placing != "" or game.brush != ""
 	if game.placing != "":
 		cancel_button.text = "KEEP READY"

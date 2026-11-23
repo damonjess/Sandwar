@@ -43,6 +43,7 @@ const VEHICLE_CELLS := {
 	"sonic_tank": 62,
 	"devastator": 66,
 	"deviator": 60,
+	"carryall": 96,
 }
 const VEHICLE_VIEW := {
 	"trike": 2.05,
@@ -54,6 +55,7 @@ const VEHICLE_VIEW := {
 	"sonic_tank": 2.32,
 	"devastator": 2.50,
 	"deviator": 2.20,
+	"carryall": 3.20,
 }
 const FACTION_INFANTRY := ["fremen", "sardaukar", "saboteur"]
 const FACTION_VEHICLES := ["raider_trike", "atreides_tank", "harkonnen_tank", "ordos_tank",
@@ -809,6 +811,47 @@ func build_tank(facing: float) -> Node3D:
 	root.add_child(turret)
 	return root
 
+## Chunky Dune 2000 carryall: a broad lift wing carried on twin tail booms,
+## an armoured forward cockpit, two rear engine nacelles and an open grapple
+## bay under the centreline. No baked shadow plane: the game draws its own
+## altitude-scaled ground shadow while the dropship is airborne.
+func build_carryall(facing: float) -> Node3D:
+	var root := Node3D.new()
+	root.rotation.y = -facing
+	# Twin tail booms and their fins.
+	for z in [-1.02, 1.02]:
+		make_box(root, Vector3(1.86, 0.16, 0.20), Vector3(-0.22, 0.78, z), mats["olive"])
+		make_box(root, Vector3(0.24, 0.30, 0.06), Vector3(-1.10, 0.92, z), mats["trim"])
+		make_box(root, Vector3(0.34, 0.06, 0.26), Vector3(-1.04, 0.79, z), mats["steel"])
+	# Broad lift wing spanning both booms.
+	make_box(root, Vector3(0.64, 0.13, 2.18), Vector3(-0.10, 0.80, 0.0), mats["olive_light"])
+	for z in [-0.64, -0.22, 0.22, 0.64]:
+		make_box(root, Vector3(0.50, 0.05, 0.09), Vector3(-0.10, 0.885, z), mats["trim"])
+	# Forward armoured cockpit pod.
+	make_box(root, Vector3(1.06, 0.42, 0.56), Vector3(0.32, 0.74, 0.0), mats["olive"])
+	make_box(root, Vector3(0.40, 0.30, 0.50), Vector3(0.78, 0.72, 0.0), mats["olive_light"], Vector3(0.0, 0.0, -10.0))
+	make_box(root, Vector3(0.20, 0.19, 0.42), Vector3(0.92, 0.80, 0.0), mats["glass"], Vector3(0.0, 0.0, -14.0))
+	make_box(root, Vector3(0.10, 0.30, 0.58), Vector3(1.02, 0.66, 0.0), mats["steel"], Vector3(0.0, 0.0, -12.0))
+	make_box(root, Vector3(0.26, 0.12, 0.30), Vector3(0.72, 0.53, 0.0), mats["gunmetal"])
+	make_cyl(root, 0.022, 0.46, Vector3(1.14, 0.62, 0.0), mats["steel_light"], Vector3(0.0, 0.0, 90.0), 8)
+	# Rear engine nacelles with exhaust bells and house-colour cowls.
+	for z in [-0.72, 0.72]:
+		make_cyl(root, 0.20, 0.86, Vector3(-0.58, 0.80, z), mats["olive"], Vector3(0.0, 0.0, 90.0), 14)
+		make_cyl(root, 0.155, 0.10, Vector3(-1.02, 0.80, z), mats["dark"], Vector3(0.0, 0.0, 90.0), 12)
+		make_cyl(root, 0.115, 0.06, Vector3(-1.08, 0.80, z), mats["rust"], Vector3(0.0, 0.0, 90.0), 12)
+		make_box(root, Vector3(0.34, 0.045, 0.24), Vector3(-0.50, 1.01, z), mats["trim"])
+		make_box(root, Vector3(0.09, 0.03, 0.70), Vector3(-0.52, 1.05, z * 1.35), mats["steel_light"])
+	# Open grapple bay under the centreline.
+	make_box(root, Vector3(0.62, 0.16, 0.46), Vector3(0.02, 0.46, 0.0), mats["gunmetal"])
+	make_box(root, Vector3(0.54, 0.08, 0.16), Vector3(0.02, 0.36, 0.0), mats["dark"])
+	for z in [-0.60, 0.0, 0.60]:
+		make_box(root, Vector3(0.09, 0.10, 0.09), Vector3(0.02, 0.35, z), mats["steel"])
+		make_box(root, Vector3(0.05, 0.20, 0.05), Vector3(0.02, 0.27, z), mats["steel_light"])
+	# Magenta house bands across wing and cockpit.
+	make_box(root, Vector3(0.10, 0.035, 1.30), Vector3(0.30, 0.90, 0.0), mats["trim"])
+	make_box(root, Vector3(0.18, 0.11, 0.62), Vector3(0.52, 0.95, 0.0), mats["trim"])
+	return root
+
 func build_harvester(facing: float, fill: float) -> Node3D:
 	var root := Node3D.new()
 	root.rotation.y = -facing
@@ -942,6 +985,8 @@ func build_vehicle_model(id: String, angle: float) -> Node3D:
 			return build_devastator(angle)
 		"deviator":
 			return build_deviator(angle)
+		"carryall":
+			return build_carryall(angle)
 	return build_trike(angle)
 
 func _bake_tank() -> void:

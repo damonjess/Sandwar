@@ -156,9 +156,11 @@ def make_rock_variants() -> list[np.ndarray]:
     base = make_rock_base()
     # Two variants are deliberately busier; the rest stay quiet under units.
     # The deterministic 40 px assignment only adds sparse local features.
-    specs = [(0.00, 1, 0, 0.55), (0.35, 2, 1, 0.72), (0.00, 1, 0, 0.55),
-             (0.00, 0, 0, 0.00), (0.20, 1, 0, 0.50), (0.55, 3, 2, 0.76),
-             (0.00, 1, 0, 0.48), (0.30, 2, 0, 0.62)]
+    # Pebbles and hairline cracks live in the seamless base sheet. Keeping
+    # them out of the 40 px cells avoids a visible feature lattice.
+    specs = [(0.00, 0, 0, 0.55), (0.35, 0, 0, 0.72), (0.00, 0, 0, 0.55),
+             (0.00, 0, 0, 0.00), (0.20, 0, 0, 0.50), (0.55, 1, 0, 0.76),
+             (0.00, 0, 0, 0.48), (0.30, 0, 0, 0.62)]
     return [
         finish_variant(base, spec[0], spec[1], spec[2], 1000 + i * 37, spec[3])
         for i, spec in enumerate(specs)
@@ -167,8 +169,8 @@ def make_rock_variants() -> list[np.ndarray]:
 
 def make_sand_variants() -> list[np.ndarray]:
     base = make_sand_base()
-    specs = [(0.00, 0, 0, 0.00), (0.20, 1, 0, 0.35),
-             (0.00, 1, 0, 0.30), (0.18, 2, 0, 0.38)]
+    specs = [(0.00, 0, 0, 0.00), (0.20, 0, 0, 0.35),
+             (0.00, 0, 0, 0.30), (0.18, 1, 0, 0.38)]
     return [
         finish_variant(base, spec[0], spec[1], 0, 2000 + i * 41, spec[3])
         for i, spec in enumerate(specs)
@@ -226,80 +228,132 @@ def _wrap_dust_and_pebbles(base: Image.Image, seed: int, dust_count: int,
     return base
 
 
-def make_clean_rock() -> Image.Image:
-    """A new seamless terracotta sheet without the legacy 40 px tint cells."""
+def _tile_noise(seed: int, cells: int, octaves: int = 4) -> np.ndarray:
+    """Seamless value noise on the 640 px sheet (wrapped lattice)."""
     W = 640
-    rng = np.random.default_rng(20261122)
-    sites = np.stack([rng.uniform(0, W, 68), rng.uniform(0, W, 68)], axis=1)
+    rng = np.random.default_rng(seed)
     yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
-    d1 = np.full((W, W), 1.0e9, dtype=np.float32)
-    d2 = np.full((W, W), 1.0e9, dtype=np.float32)
-    idx = np.zeros((W, W), dtype=np.int32)
-    for i, (sx, sy) in enumerate(sites):
-        dx = np.abs(xx - sx)
-        dx = np.minimum(dx, W - dx)
-        dy = np.abs(yy - sy)
-        dy = np.minimum(dy, W - dy)
-        d = np.sqrt(dx * dx + dy * dy)
-        closer = d < d1
-        d2 = np.where(closer, d1, np.minimum(d2, d))
-        d1 = np.where(closer, d, d1)
-        idx = np.where(closer, i, idx)
-    wave = (0.45 * np.sin(2 * np.pi * (xx / W) + 0.4)
-            + 0.25 * np.sin(2 * np.pi * (yy / W) + 2.1)
-            + 0.15 * np.sin(2 * np.pi * (2 * xx / W + yy / W) + 0.8)
-            + 0.10 * np.sin(2 * np.pi * (xx / W - 2 * yy / W) + 1.4))
-    wave = (wave - wave.min()) / (wave.max() - wave.min())
-    light = np.array([207.0, 139.0, 88.0], dtype=np.float32)
-    dark = np.array([166.0, 94.0, 55.0], dtype=np.float32)
-    base = dark[None, None, :] + (light - dark)[None, None, :] * wave[..., None]
-    # Warm-only plate variation: never let a plate drift green in the desert.
-    warm = np.random.default_rng(99).normal(0.0, 1.0, 68)
-    base = base * (1.0 + warm[idx, None] * 0.025)
-    base = base + warm[idx, None] * np.array([2.8, 1.3, 0.0])
-    grain = (np.sin(xx * 2.7 + yy * 1.3) * 0.5
-             + np.sin(xx * 5.1 - yy * 3.7) * 0.3
-             + np.sin(yy * 7.3) * 0.2)
-    base = base + grain[..., None] * 2.4
-    base = base + np.random.default_rng(707).normal(0.0, 4.0, (W, W, 3))
-    edge = d2 - d1
-    crack = np.clip((4.0 - edge) / 3.0, 0.0, 1.0)[..., None]
-    crack_col = np.array([116.0, 70.0, 43.0], dtype=np.float32)
-    img = base * (1.0 - crack * 0.72) + crack_col[None, None, :] * (crack * 0.72)
-    lip = (np.clip((edge - 3.5) / 1.5, 0.0, 1.0)
-           * np.clip((4.0 - edge) / 1.2, 0.0, 1.0))
-    img = img + lip[..., None] * np.array([14.0, 9.0, 4.0])
-    clean = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
-    clean = _add_hairlines(clean, 606, 74)
-    return _wrap_dust_and_pebbles(clean, 404, 24, 58, (226, 190, 142), 14)
+    total = np.zeros((W, W), dtype=np.float32)
+    norm = 0.0
+    amp = 1.0
+    for o in range(octaves):
+        n = max(2, cells * (2 ** o))
+        lattice = rng.random((n, n)).astype(np.float32)
+        fx = xx / W * n
+        fy = yy / W * n
+        x0 = np.floor(fx).astype(np.int32) % n
+        y0 = np.floor(fy).astype(np.int32) % n
+        tx = fx - np.floor(fx)
+        ty = fy - np.floor(fy)
+        tx = tx * tx * (3.0 - 2.0 * tx)
+        ty = ty * ty * (3.0 - 2.0 * ty)
+        x1 = (x0 + 1) % n
+        y1 = (y0 + 1) % n
+        v = (lattice[y0, x0] * (1.0 - tx) * (1.0 - ty)
+             + lattice[y0, x1] * tx * (1.0 - ty)
+             + lattice[y1, x0] * (1.0 - tx) * ty
+             + lattice[y1, x1] * tx * ty)
+        total += v * amp
+        norm += amp
+        amp *= 0.5
+    return total / norm
+
+
+def _nw_light(height: np.ndarray, strength: float) -> np.ndarray:
+    """Fake directional lighting: NW neighbours higher means a lit NW slope."""
+    shade = (np.roll(height, 1, axis=0) + np.roll(height, 1, axis=1)
+             - 2.0 * height)
+    return np.clip(shade * strength, -1.0, 1.0)
+
+
+def _hairline_cracks(img: Image.Image, seed: int, count: int) -> Image.Image:
+    """Faint 1 px fractures, wrapped at every sheet edge."""
+    W = img.width
+    rng = np.random.default_rng(seed)
+    layer = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for _ in range(count):
+        x, y = rng.uniform(4, W - 4), rng.uniform(4, W - 4)
+        pts = [(x, y)]
+        for _ in range(int(rng.integers(2, 4))):
+            x = max(2, min(W - 3, x + rng.uniform(-7, 7)))
+            y = max(2, min(W - 3, y + rng.uniform(-5, 8)))
+            pts.append((x, y))
+        alpha = int(rng.integers(42, 74))
+        for ox in (-W, 0, W):
+            for oy in (-W, 0, W):
+                d.line([(px + ox, py + oy) for px, py in pts],
+                       fill=(118, 76, 48, alpha), width=1)
+    return Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
+
+
+def _sparkle(img: Image.Image, seed: int, count: int, tint) -> Image.Image:
+    """Sparse crystalline highlights, kept away from the tiled edges."""
+    W = img.width
+    arr = np.asarray(img.convert("RGB")).astype(np.int16)
+    rng = np.random.default_rng(seed)
+    xs = rng.integers(3, W - 3, count)
+    ys = rng.integers(3, W - 3, count)
+    arr[ys, xs] = np.clip(arr[ys, xs] + np.array(tint, dtype=np.int16), 0, 255)
+    return Image.fromarray(arr.astype(np.uint8), "RGB")
+
+
+def make_clean_rock() -> Image.Image:
+    """Granular Dune sandstone: fine grain, NW height light, hairline cracks."""
+    W = 640
+    yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
+    height = (0.47 * _tile_noise(311, 3, 4)
+              + 0.27 * _tile_noise(312, 8, 3)
+              + 0.26 * _tile_noise(313, 20, 2))
+    height += (0.045 * np.sin(2 * np.pi * (xx + 2 * yy) / W + 0.7)
+               + 0.028 * np.sin(2 * np.pi * (3 * xx - yy) / W + 2.1))
+    h = (height - height.min()) / max(float(height.max() - height.min()), 1.0e-6)
+    light = np.array([212.0, 149.0, 101.0], dtype=np.float32)
+    dark = np.array([172.0, 109.0, 69.0], dtype=np.float32)
+    img = dark[None, None, :] + (light - dark)[None, None, :] * h[..., None]
+    patches = _tile_noise(314, 2, 3) - 0.5
+    img += patches[..., None] * np.array([16.0, 9.0, 2.0])
+    # Fine granular rock: two high-frequency layers, not a polygon web.
+    grit = _tile_noise(315, 130, 2)
+    img += (grit - 0.5)[..., None] * 11.0
+    img += (_tile_noise(316, 300, 1) - 0.5)[..., None] * 5.0
+    # Sparse granular speckle: light quartz and dark iron grains.
+    speck = _tile_noise(319, 360, 1)
+    img += np.clip((speck - 0.76) * 90.0, 0.0, 1.0)[..., None] * np.array([16.0, 13.0, 9.0])
+    img -= np.clip((0.24 - speck) * 90.0, 0.0, 1.0)[..., None] * np.array([14.0, 13.0, 11.0])
+    shade = _nw_light(height, 125.0)
+    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([38.0, 28.0, 18.0])
+    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([19.0, 17.0, 15.0])
+    rng = np.random.default_rng(317)
+    img += rng.integers(-3, 4, (W, W, 1)).astype(np.float32)
+    rock = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+    rock = _hairline_cracks(rock, 410, 30)
+    rock = _wrap_dust_and_pebbles(rock, 404, 14, 64, (230, 192, 143), 10)
+    return _sparkle(rock, 318, 260, (11, 8, 5))
 
 
 def make_clean_sand() -> Image.Image:
-    """A new seamless dune sheet with no legacy vertical seam or tint cells."""
+    """Pale wind-blown dunes with soft ripples and fine crystalline grain."""
     W = 640
     yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
-    dune = (0.55 + 0.16 * np.sin(2 * np.pi * (xx + 2 * yy) / W + 0.6)
-            + 0.09 * np.sin(2 * np.pi * (2 * xx - yy) / W + 2.0)
-            + 0.04 * np.sin(2 * np.pi * (4 * xx + 3 * yy) / W + 1.2))
-    dune = np.clip(dune, 0.0, 1.0)
-    light = np.array([233.0, 211.0, 174.0], dtype=np.float32)
-    dark = np.array([207.0, 174.0, 126.0], dtype=np.float32)
-    base = dark[None, None, :] + (light - dark)[None, None, :] * dune[..., None]
-    grain = (np.sin(xx * 3.7 + yy * 1.9) * 0.5
-             + np.sin(xx * 7.1 - yy * 4.3) * 0.3
-             + np.sin(yy * 9.1) * 0.2)
-    base = base + grain[..., None] * 2.2
-    base = base + np.random.default_rng(808).normal(0.0, 2.2, (W, W, 3))
-    phase = (2 * np.pi * (yy * 6 + xx * 2 + 8 * np.sin(2 * np.pi * xx / W)) / W
-             + dune * 2.6)
-    ripple = np.sin(phase)
-    crest = np.clip((ripple - 0.55) / 0.45, 0.0, 1.0)
-    trough = np.clip((-ripple - 0.55) / 0.45, 0.0, 1.0)
-    base = (base + crest[..., None] * np.array([9.0, 7.0, 4.0])
-            - trough[..., None] * np.array([7.0, 6.0, 4.0]))
-    return _wrap_dust_and_pebbles(
-        Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB"),
-        505, 20, 44, (245, 225, 191), 14)
+    broad = (0.58 * _tile_noise(511, 3, 3) + 0.42 * _tile_noise(512, 9, 2))
+    phase = (2 * np.pi * (yy * 7.0 + xx * 2.0 + 6.0 * np.sin(2 * np.pi * xx / W)) / W
+             + broad * 4.2)
+    ripple = 0.5 + 0.5 * np.sin(phase)
+    h = 0.58 * ripple + 0.42 * broad
+    light = np.array([237.0, 217.0, 183.0], dtype=np.float32)
+    dark = np.array([204.0, 171.0, 126.0], dtype=np.float32)
+    img = dark[None, None, :] + (light - dark)[None, None, :] * h[..., None]
+    shade = _nw_light(ripple * 0.72 + broad * 0.28, 46.0)
+    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([11.0, 9.0, 6.0])
+    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([8.0, 7.0, 5.0])
+    img += (_tile_noise(513, 120, 2) - 0.5)[..., None] * 6.0
+    img += (_tile_noise(516, 300, 1) - 0.5)[..., None] * 2.6
+    rng = np.random.default_rng(514)
+    img += rng.integers(-3, 4, (W, W, 1)).astype(np.float32)
+    sand = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+    sand = _wrap_dust_and_pebbles(sand, 505, 12, 26, (246, 227, 194), 9)
+    return _sparkle(sand, 515, 240, (12, 10, 8))
 
 
 def verify_clean_wrap(name: str, img: Image.Image) -> None:

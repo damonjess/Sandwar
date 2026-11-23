@@ -1,7 +1,7 @@
 class_name BuildingArt
 extends RefCounted
 
-## Sprites baked by tools/bake_buildings_3d.gd.
+## Sprites baked by tools/blender_bake_buildings.py (Cycles).
 ##
 ## Each sheet is a 4 frame idle strip on row 0 and 4 damaged frames on row 1,
 ## painted neutral with magenta house trim. Views run the strip through
@@ -26,15 +26,15 @@ const HEAD_DIR := "res://assets/sprites/buildings"
 ## the health bar and power badge, so keep them in sync with the baker's
 ## camera framing.
 const ART_TOPS := {
-	"cy": -96.0,
-	"refinery": -61.0,
-	"windtrap": -68.0,
-	"barracks": -88.0,
-	"factory": -76.0,
-	"turret": -15.0,
-	"rocketturret": -16.0,
-	"wall": -25.0,
-	"slab": 0.0,
+	"cy": -103.0,
+	"refinery": -75.0,
+	"windtrap": -67.0,
+	"barracks": -83.0,
+	"factory": -85.0,
+	"turret": -17.0,
+	"rocketturret": -18.0,
+	"wall": -23.0,
+	"slab": -1.0,
 }
 
 static var _heads: Dictionary = {}

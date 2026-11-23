@@ -17,6 +17,13 @@ var enabled := true:
 var primary := false
 var accent := Color(0.84, 0.68, 0.36)
 var subtext := ""
+## Set by the owning screen while arrow-key navigation is active.
+var keyboard_focused := false:
+	set(value):
+		if keyboard_focused == value:
+			return
+		keyboard_focused = value
+		queue_redraw()
 
 var _hovered := false
 var _held := false
@@ -87,22 +94,34 @@ func _draw() -> void:
 	if _hovered and enabled:
 		border = accent.lightened(0.25)
 	draw_rect(rect.grow(-2.0), Color(border.r, border.g, border.b, 0.92), false, 1.4)
+	if keyboard_focused and enabled:
+		draw_rect(rect.grow(2.0), Color(1.0, 0.88, 0.50, 0.92), false, 2.0)
 	# Brass corner ticks.
 	var tick := Color(border.r, border.g, border.b, 0.55)
 	for corner in [Vector2(7.0, 7.0), Vector2(w - 7.0, 7.0), Vector2(7.0, h - 7.0), Vector2(w - 7.0, h - 7.0)]:
 		draw_circle(corner, 1.8, tick)
 	var font := ThemeDB.fallback_font
-	var col := Color(0.94, 0.88, 0.74) if enabled else Color(0.42, 0.39, 0.32)
+	var col := Color(0.96, 0.91, 0.80) if enabled else Color(0.50, 0.47, 0.40)
 	if primary and enabled:
-		col = Color(1.0, 0.92, 0.68)
+		col = Color(1.0, 0.94, 0.74)
+	var outline := Color(0.02, 0.015, 0.01, 0.85)
 	if subtext != "":
-		draw_string(font, Vector2(0.0, h * 0.5 - 1.0), text.to_upper(), HORIZONTAL_ALIGNMENT_CENTER,
+		var sub_fs := maxi(12, font_size - 5)
+		var label := text.to_upper()
+		var main_base := h * 0.5 - 2.0
+		var sub_base := main_base + float(sub_fs) + 2.0
+		draw_string_outline(font, Vector2(0.0, main_base), label, HORIZONTAL_ALIGNMENT_CENTER,
+			w, font_size, 2, outline)
+		draw_string(font, Vector2(0.0, main_base), label, HORIZONTAL_ALIGNMENT_CENTER,
 			w, font_size, col)
-		draw_string(font, Vector2(0.0, h * 0.5 + 15.0), subtext, HORIZONTAL_ALIGNMENT_CENTER,
-			w, maxi(8, font_size - 6), Color(0.62, 0.57, 0.46, 0.95))
+		draw_string(font, Vector2(0.0, sub_base), subtext, HORIZONTAL_ALIGNMENT_CENTER,
+			w, sub_fs, Color(0.80, 0.74, 0.62, 0.98))
 	else:
 		var baseline := (h + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
-		draw_string(font, Vector2(0.0, baseline), text.to_upper(), HORIZONTAL_ALIGNMENT_CENTER,
+		var label := text.to_upper()
+		draw_string_outline(font, Vector2(0.0, baseline), label, HORIZONTAL_ALIGNMENT_CENTER,
+			w, font_size, 2, outline)
+		draw_string(font, Vector2(0.0, baseline), label, HORIZONTAL_ALIGNMENT_CENTER,
 			w, font_size, col)
 	if primary and enabled:
 		var glow := 0.18 + 0.10 * absf(sin(Time.get_ticks_msec() * 0.004))

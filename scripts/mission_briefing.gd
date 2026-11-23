@@ -38,6 +38,8 @@ var skip_hint: Label
 var proceed_button: TouchButton
 var back_button: TouchButton
 var left_panel: PanelContainer
+var _actions: Array = []
+var _action_focus := 0
 
 var typing := false
 var _type_progress := 0.0
@@ -132,12 +134,12 @@ func _build() -> void:
 	header.add_child(titles)
 	var overline := Label.new()
 	overline.text = "ARRAKIS HIGH COMMAND  //  MENTAT SECURE LINK"
-	overline.add_theme_font_size_override("font_size", 9)
+	overline.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	overline.add_theme_color_override("font_color", C_DIM)
 	titles.add_child(overline)
 	var title := Label.new()
 	title.text = "MENTAT BRIEFING"
-	title.add_theme_font_size_override("font_size", 27)
+	title.add_theme_font_size_override("font_size", GameDefs.fs(27))
 	title.add_theme_color_override("font_color", C_BONE)
 	titles.add_child(title)
 	var house_block := VBoxContainer.new()
@@ -146,13 +148,13 @@ func _build() -> void:
 	var house_label := Label.new()
 	house_label.text = Factions.display_name(house).to_upper()
 	house_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	house_label.add_theme_font_size_override("font_size", 14)
+	house_label.add_theme_font_size_override("font_size", GameDefs.fs(16))
 	house_label.add_theme_color_override("font_color", accent.lightened(0.30))
 	house_block.add_child(house_label)
 	var link_label := Label.new()
 	link_label.text = "ENCRYPTED CHANNEL 07  ·  SIGNAL STRONG"
 	link_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	link_label.add_theme_font_size_override("font_size", 9)
+	link_label.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	link_label.add_theme_color_override("font_color", C_DIM)
 	house_block.add_child(link_label)
 
@@ -203,13 +205,13 @@ func _build() -> void:
 	var name_label := Label.new()
 	name_label.text = Factions.mentat_name(house)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_label.add_theme_font_size_override("font_size", 15)
+	name_label.add_theme_font_size_override("font_size", GameDefs.fs(16))
 	name_label.add_theme_color_override("font_color", accent.lightened(0.32))
 	monitor_column.add_child(name_label)
 	var mentat_title := Label.new()
 	mentat_title.text = Factions.mentat_title(house)
 	mentat_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mentat_title.add_theme_font_size_override("font_size", 8)
+	mentat_title.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	mentat_title.add_theme_color_override("font_color", C_DIM)
 	monitor_column.add_child(mentat_title)
 
@@ -221,18 +223,18 @@ func _build() -> void:
 
 	var incoming := Label.new()
 	incoming.text = "INCOMING TRANSMISSION  //  PRIORITY MENTAT EYES ONLY"
-	incoming.add_theme_font_size_override("font_size", 9)
+	incoming.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	incoming.add_theme_color_override("font_color", C_GREEN)
 	right.add_child(incoming)
 	var mission_header := Label.new()
 	mission_header.text = "MISSION %d OF %d  —  %s" % [tier, CampaignMissions.TIER_COUNT, region_name]
-	mission_header.add_theme_font_size_override("font_size", 21)
+	mission_header.add_theme_font_size_override("font_size", GameDefs.fs(22))
 	mission_header.add_theme_color_override("font_color", C_BONE)
 	mission_header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	right.add_child(mission_header)
 	var enemy_label := Label.new()
 	enemy_label.text = "OPPOSITION  %s     ·     CHANNEL 07 / CIPHER LOCKED" % Factions.display_name(enemy_house).to_upper()
-	enemy_label.add_theme_font_size_override("font_size", 9)
+	enemy_label.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	enemy_label.add_theme_color_override("font_color", Factions.color(enemy_house).lightened(0.25))
 	right.add_child(enemy_label)
 	var trans_rule := ColorRect.new()
@@ -245,10 +247,10 @@ func _build() -> void:
 	transmission_label.visible_characters = 0
 	transmission_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	transmission_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	transmission_label.add_theme_font_size_override("font_size", 15)
+	transmission_label.add_theme_font_size_override("font_size", GameDefs.fs(18))
 	transmission_label.add_theme_constant_override("line_spacing", 6)
-	transmission_label.add_theme_color_override("font_color", Color(0.91, 0.85, 0.70))
-	transmission_label.custom_minimum_size = Vector2(0.0, 150.0)
+	transmission_label.add_theme_color_override("font_color", Color(0.96, 0.91, 0.79))
+	transmission_label.custom_minimum_size = Vector2(0.0, 120.0)
 	transmission_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	transmission_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	transmission_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -258,7 +260,7 @@ func _build() -> void:
 
 	skip_hint = Label.new()
 	skip_hint.text = "▸  TAP TRANSMISSION TO REVEAL FULL ORDERS"
-	skip_hint.add_theme_font_size_override("font_size", 8)
+	skip_hint.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	skip_hint.add_theme_color_override("font_color", C_AMBER)
 	right.add_child(skip_hint)
 
@@ -279,19 +281,19 @@ func _build() -> void:
 	objective_panel.add_child(objective_col)
 	var objective_heading := Label.new()
 	objective_heading.text = "PRIMARY OBJECTIVE"
-	objective_heading.add_theme_font_size_override("font_size", 9)
+	objective_heading.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	objective_heading.add_theme_color_override("font_color", C_AMBER)
 	objective_col.add_child(objective_heading)
 	var objective := Label.new()
 	objective.text = objective_text
 	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	objective.add_theme_font_size_override("font_size", 12)
-	objective.add_theme_color_override("font_color", C_BONE)
+	objective.add_theme_font_size_override("font_size", GameDefs.fs(16))
+	objective.add_theme_color_override("font_color", Color(0.96, 0.92, 0.82))
 	objective_col.add_child(objective)
 
 	var unlock_heading := Label.new()
 	unlock_heading.text = unlock_title
-	unlock_heading.add_theme_font_size_override("font_size", 9)
+	unlock_heading.add_theme_font_size_override("font_size", GameDefs.fs(13))
 	unlock_heading.add_theme_color_override("font_color", C_AMBER)
 	right.add_child(unlock_heading)
 	var tech_flow := HFlowContainer.new()
@@ -308,8 +310,8 @@ func _build() -> void:
 	if tech_flow.get_child_count() == 0:
 		var none := Label.new()
 		none.text = "NO NEW HARDWARE ON THIS FRONT"
-		none.add_theme_font_size_override("font_size", 9)
-		none.add_theme_color_override("font_color", C_DIM)
+		none.add_theme_font_size_override("font_size", GameDefs.fs(12))
+		none.add_theme_color_override("font_color", Color(0.78, 0.72, 0.60))
 		tech_flow.add_child(none)
 
 	var footer := HBoxContainer.new()
@@ -318,7 +320,7 @@ func _build() -> void:
 	column.add_child(footer)
 	var footer_status := Label.new()
 	footer_status.text = "CHANNEL SECURE  ·  MENTAT LINK 07"
-	footer_status.add_theme_font_size_override("font_size", 9)
+	footer_status.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	footer_status.add_theme_color_override("font_color", C_DIM)
 	footer_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	footer_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -326,7 +328,7 @@ func _build() -> void:
 	if not embedded:
 		back_button = TouchButton.new()
 		back_button.text = "BACK TO MAP"
-		back_button.font_size = 12
+		back_button.font_size = GameDefs.fs(14)
 		back_button.accent = C_BRONZE
 		back_button.custom_minimum_size = Vector2(200.0, 48.0)
 		back_button.pressed.connect(_on_back)
@@ -334,12 +336,15 @@ func _build() -> void:
 	proceed_button = TouchButton.new()
 	proceed_button.text = "RETURN TO BATTLE" if embedded else "PROCEED / START MISSION"
 	proceed_button.subtext = "REVIEW COMPLETE" if embedded else "PROCEED TO BATTLE"
-	proceed_button.font_size = 15
+	proceed_button.font_size = GameDefs.fs(16)
 	proceed_button.primary = true
 	proceed_button.accent = accent
 	proceed_button.custom_minimum_size = Vector2(360.0, 48.0)
 	proceed_button.pressed.connect(_on_proceed)
 	footer.add_child(proceed_button)
+	_actions = [proceed_button]
+	if back_button != null:
+		_actions.append(back_button)
 
 func _layout() -> void:
 	if left_panel == null:
@@ -435,9 +440,45 @@ func _on_back() -> void:
 	get_tree().change_scene_to_file("res://scenes/campaign_map.tscn")
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if not key.pressed or key.echo or _closing:
+		return
+	var confirm := key.keycode in [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]
+	if typing and confirm:
+		get_viewport().set_input_as_handled()
+		_reveal()
+		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		_on_back()
+		return
+	if confirm:
+		get_viewport().set_input_as_handled()
+		_activate_action()
+		return
+	if key.keycode in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_TAB]:
+		get_viewport().set_input_as_handled()
+		_cycle_action(-1 if key.shift_pressed else 1)
+
+func _cycle_action(step: int) -> void:
+	if _actions.is_empty():
+		return
+	for offset in range(1, _actions.size() + 1):
+		var index := posmod(_action_focus + step * offset, _actions.size())
+		if _actions[index].enabled:
+			_action_focus = index
+			break
+	for index in _actions.size():
+		_actions[index].keyboard_focused = index == _action_focus
+
+func _activate_action() -> void:
+	if _actions.is_empty():
+		return
+	var action = _actions[_action_focus]
+	if action != null and action.enabled:
+		action.pressed.emit()
 
 func _make_tech_chip(kind: String, id: String) -> Control:
 	var def: Dictionary = {}
@@ -454,7 +495,7 @@ func _make_tech_chip(kind: String, id: String) -> Control:
 	if def.is_empty():
 		return null
 	var chip := PanelContainer.new()
-	chip.custom_minimum_size = Vector2(98.0, 53.0)
+	chip.custom_minimum_size = Vector2(156.0, 58.0)
 	chip.tooltip_text = String(def.get("name", id))
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
@@ -472,7 +513,7 @@ func _make_tech_chip(kind: String, id: String) -> Control:
 	chip.add_child(row)
 	var image := TextureRect.new()
 	image.texture = icon
-	image.custom_minimum_size = Vector2(31.0, 31.0)
+	image.custom_minimum_size = Vector2(30.0, 30.0)
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	image.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -482,9 +523,9 @@ func _make_tech_chip(kind: String, id: String) -> Control:
 	row.add_child(image)
 	var caption := Label.new()
 	caption.text = String(def.get("name", id)).to_upper()
-	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD
 	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	caption.add_theme_font_size_override("font_size", 7)
+	caption.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	caption.add_theme_color_override("font_color", C_BONE)
 	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -673,16 +714,16 @@ class MentatPortrait:
 		draw_circle(Vector2(15.0, 14.0), 3.0, Color(0.28, 1.0, 0.46, live))
 		draw_circle(Vector2(15.0, 14.0), 6.0, Color(0.28, 1.0, 0.46, live * 0.12))
 		var font := ThemeDB.fallback_font
-		draw_string(font, Vector2(23.0, 18.0), "LIVE", HORIZONTAL_ALIGNMENT_LEFT, -1, 7,
-			Color(0.58, 1.0, 0.70, 0.88))
+		draw_string(font, Vector2(23.0, 20.0), "LIVE", HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
+			Color(0.68, 1.0, 0.78, 0.94))
 		for i in 4:
 			var bh := 3.0 + float(i) * 2.2
 			draw_rect(Rect2(w - 38.0 + float(i) * 5.0, 17.0 - bh, 3.0, bh),
 				Color(0.44, 0.92, 0.58, 0.65))
-		draw_string(font, Vector2(w - 74.0, 18.0), "CH 07", HORIZONTAL_ALIGNMENT_LEFT, -1, 7,
-			Color(0.44, 0.92, 0.58, 0.68))
-		draw_string(font, Vector2(12.0, h - 10.0), "MENTAT SECURE FEED", HORIZONTAL_ALIGNMENT_LEFT, -1, 7,
-			Color(0.55, 0.47, 0.32, 0.78))
+		draw_string(font, Vector2(w - 82.0, 20.0), "CH 07", HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
+			Color(0.58, 0.98, 0.70, 0.86))
+		draw_string(font, Vector2(12.0, h - 9.0), "MENTAT SECURE FEED", HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
+			Color(0.72, 0.62, 0.44, 0.92))
 		# Four-bar voice monitor beside the feed label.
 		for i in 4:
 			var amp := (0.28 + 0.72 * absf(sin(_clock * 9.0 + float(i) * 1.7))) if typing else 0.14

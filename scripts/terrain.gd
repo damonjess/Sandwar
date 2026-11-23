@@ -163,6 +163,13 @@ func _add_spice(center: Vector2i, radius: int) -> void:
 func in_bounds(x: int, y: int) -> bool:
 	return x >= 0 and y >= 0 and x < GameDefs.MAP and y < GameDefs.MAP
 
+## Open desert: sand with no concrete slab. Sandworms may only occupy this.
+func is_open_sand(tile: Vector2i) -> bool:
+	if not in_bounds(tile.x, tile.y):
+		return false
+	var i := tile.y * GameDefs.MAP + tile.x
+	return types[i] == GameDefs.SAND and concrete[i] == 0
+
 # ------------------------------------------------------------------- vision
 
 func clear_visible() -> void:
