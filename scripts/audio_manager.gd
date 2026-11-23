@@ -20,6 +20,7 @@ const SOUND_FILES := {
 	"build_place": ["build_place.wav"],
 	"ui_click": ["ui_click.wav"],
 	"build_ready": ["build_ready.wav"],
+	"comms_blip": ["comms_blip.wav"],
 	"low_power": ["low_power.wav"],
 }
 
@@ -35,6 +36,7 @@ const COOLDOWN_MS := {
 	"build_place": 90,
 	"ui_click": 40,
 	"build_ready": 200,
+	"comms_blip": 55,
 	"low_power": 2500,
 }
 
@@ -50,6 +52,7 @@ const MAX_CONCURRENT := {
 	"build_place": 2,
 	"ui_click": 2,
 	"build_ready": 1,
+	"comms_blip": 2,
 	"low_power": 1,
 }
 
@@ -77,6 +80,12 @@ var ui_i := 0
 var last_ms: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 var _world_distance := 900.0
+
+func _exit_tree() -> void:
+	# Release active playbacks and stream references before the audio server tears
+	# down, so a last typewriter blip cannot leave an orphan at quit.
+	stop_all()
+	streams.clear()
 
 func _ready() -> void:
 	rng.randomize()
@@ -169,6 +178,18 @@ func _active_count(players: Array, id: String) -> int:
 
 func _on_player_finished(player) -> void:
 	player.set_meta("sfx_id", "")
+
+## Scene changes call this so a battle's gunfire cannot bleed into the next
+## mission or the strategic map. The pooled players stay alive for reuse.
+func stop_all() -> void:
+	for player in world_players:
+		player.stop()
+		player.stream = null
+		player.set_meta("sfx_id", "")
+	for player in ui_players:
+		player.stop()
+		player.stream = null
+		player.set_meta("sfx_id", "")
 
 # ------------------------------------------------------------------ setup
 

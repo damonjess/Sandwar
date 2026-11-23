@@ -46,6 +46,15 @@ var stuck_anchor := Vector2.ZERO
 var turret_facing := 0.0
 var locomoting := false
 var anim_clock := 0.0
+## House-unique behaviour flags, copied from GameDefs.UNITS.
+var special := ""
+var stealth := 0.0
+var splash_radius := 0.0
+var splash_fraction := 0.0
+## Deviator conversion: the unit fights for another house until the timer
+## expires, then reverts to its original owner.
+var charm_timer := 0.0
+var charm_team := -1
 
 func configure(id: String, team_id: int, g) -> void:
 	type_id = id
@@ -60,6 +69,10 @@ func configure(id: String, team_id: int, g) -> void:
 	cooldown_time = float(cfg["cooldown"])
 	weapon = String(cfg.get("weapon", "small_arms"))
 	radius = float(cfg["radius"])
+	special = String(cfg.get("special", ""))
+	stealth = float(cfg.get("stealth", 0.0))
+	splash_radius = float(cfg.get("splash", 0.0))
+	splash_fraction = float(cfg.get("splash_fraction", 0.0))
 	bob = randf() * TAU
 	anim_clock = randf() * TAU
 	turret_facing = facing
@@ -74,6 +87,46 @@ func is_alive() -> bool:
 ## What the weapon counter table calls this unit when something shoots it.
 func damage_class() -> String:
 	return String(GameDefs.ARMOUR_CLASS.get(type_id, "vehicle"))
+
+## Deviator gas: vehicles only, and only while not already converted. The
+## harvester counts as a vehicle, which makes stealing one a real raid.
+func charm(new_team: int, duration: float) -> bool:
+	if dead or new_team == team or charm_timer > 0.0:
+		return false
+	if damage_class() != "vehicle":
+		return false
+	charm_team = team
+	charm_timer = duration
+	team = new_team
+	material = UnitArt.material(team)
+	attack_target = null
+	has_move = false
+	path.clear()
+	guarding = false
+	if game != null:
+		if game.fx != null:
+			game.fx.popup("CONVERTED", global_position + Vector2(0.0, -24.0))
+		game.play_sfx("low_power", global_position, -6.0, 1.45)
+	queue_redraw()
+	return true
+
+func _revert_charm() -> void:
+	if charm_team < 0:
+		return
+	team = charm_team
+	charm_team = -1
+	charm_timer = 0.0
+	material = UnitArt.material(team)
+	attack_target = null
+	has_move = false
+	path.clear()
+	if game != null:
+		if game.selected.has(self):
+			game.selected.erase(self)
+			game._after_select()
+		if game.fx != null:
+			game.fx.popup("CONTROL LOST", global_position + Vector2(0.0, -24.0))
+	queue_redraw()
 
 func order_move(pos: Vector2) -> void:
 	guarding = false
@@ -133,6 +186,10 @@ func _process(delta: float) -> void:
 		return
 	bob += delta * 5.0
 	anim_clock += delta
+	if charm_timer > 0.0:
+		charm_timer -= delta
+		if charm_timer <= 0.0:
+			_revert_charm()
 	locomoting = false
 	cooldown = maxf(0.0, cooldown - delta)
 	flash = maxf(0.0, flash - delta * 4.0)
@@ -291,10 +348,19 @@ func _tick_combat(delta: float) -> void:
 		return
 	cooldown = cooldown_time
 	flash = 1.0
+	# Sonic Tank: a short piercing shockwave down the barrel line. It is not a
+	# projectile, so every enemy body and structure along the path is struck.
+	if special == "sonic":
+		_fire_sonic(Vector2.RIGHT.rotated(facing))
+		game.play_sfx("cannon", global_position, -3.0, 0.68)
+		if game.fx != null:
+			game.fx.muzzle(global_position + Vector2.RIGHT.rotated(facing) * UnitArt.muzzle_distance(type_id, radius),
+				facing, "cannon", 1.0)
+		return
 	var style := "rifle"
-	if weapon == "cannon":
+	if weapon == "cannon" or weapon == "demolition":
 		style = "cannon"
-	elif type_id == "trike" or type_id == "quad":
+	elif type_id == "trike" or type_id == "quad" or type_id == "raider_trike":
 		style = "light"
 	# Fire along the direction the baked sprite is actually showing. On the
 	# tank that is the tracking turret; on every other unit it is the body. The
@@ -312,10 +378,15 @@ func _tick_combat(delta: float) -> void:
 		rocket_salvo_left = 1
 		rocket_salvo_timer = 0.12
 		rocket_salvo_target = attack_target
+	elif weapon == "gas":
+		# Deviator: a single green gas missile. On impact the primary vehicle
+		# target is converted to our house for twelve seconds.
+		_launch_rocket(attack_target, muzzle, dir, 1.0)
 	elif style == "cannon":
 		var shell := BallisticScript.new()
 		game.add_child(shell)
-		shell.setup(game, team, attack_target, muzzle, dir, damage, weapon, "cannon", 680.0, 10.0)
+		shell.setup(game, team, attack_target, muzzle, dir, damage, weapon, "cannon", 680.0, 10.0,
+			splash_radius, splash_fraction)
 		game.fx.muzzle(muzzle, shot_angle, "cannon", barrel_side)
 	else:
 		var speed := 1000.0
@@ -335,14 +406,46 @@ func _tick_combat(delta: float) -> void:
 		sound = "cannon"
 	if weapon == "rocket":
 		sound = "rocket_launch"
+	elif weapon == "gas":
+		sound = "rocket_launch"
 	game.play_sfx(sound, global_position, -4.0)
 
 func _launch_rocket(target, muzzle: Vector2, dir: Vector2, share := 1.0) -> void:
 	var rocket := RocketScript.new()
 	game.add_child(rocket)
 	rocket.setup(game, team, target, muzzle, dir, damage * share, weapon,
-		0.0, 0.0, 340.0, 4.0, 0.55, 0.8)
+		0.0, 0.0, 340.0, 4.0, 0.55, 0.8, special)
 	game.fx.muzzle(muzzle, dir.angle(), "rocket", barrel_side)
+
+## Acoustic shockwave: every enemy whose body intersects the beam line takes
+## full sonic damage. Buildings are clipped by their footprint radius.
+func _fire_sonic(dir: Vector2) -> void:
+	var start := global_position
+	var reach := attack_range * 1.2
+	var end := start + dir * reach
+	if game.fx != null:
+		game.fx.sonic_wave(start, dir, reach, team)
+	# Snapshot the lists: a lethal hit erases the victim from game.units during
+	# the loop, which would otherwise skip the next body in the beam.
+	var targets: Array = game.units.duplicate()
+	for other in targets:
+		if other == self or not is_instance_valid(other) or other.dead or other.team == team:
+			continue
+		if _line_distance(other.global_position, start, end) <= 24.0 + other.radius:
+			other.take_damage(damage * GameDefs.damage_multiplier("sonic", other.damage_class()))
+	var structures: Array = game.buildings.duplicate()
+	for b in structures:
+		if not is_instance_valid(b) or b.dead or b.team == team:
+			continue
+		if _line_distance(b.global_position, start, end) <= 24.0 + b.size_px * 0.28:
+			b.take_damage(damage * GameDefs.damage_multiplier("sonic", b.damage_class()))
+	if game.scorch_layer != null:
+		game.scorch_layer.add(end, 10.0)
+
+func _line_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((point - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+	return point.distance_to(a + ab * t)
 
 func _draw() -> void:
 	if selected:
@@ -373,7 +476,7 @@ func draw_baked_unit() -> void:
 		if harvest_tex != null:
 			draw_texture_rect_region(harvest_tex, dest, UnitArt.harvester_region(facing))
 		return
-	if type_id == "infantry" or type_id == "rocket":
+	if UnitArt.is_infantry(type_id):
 		var anim := 0
 		if flash > 0.55:
 			anim = 3

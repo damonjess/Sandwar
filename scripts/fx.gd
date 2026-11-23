@@ -8,6 +8,7 @@ var flashes: Array = []
 var impacts: Array = []
 var blasts: Array = []
 var texts: Array = []
+var waves: Array = []
 
 ## Short pixel muzzle flash. kind: rifle / light / cannon / rocket.
 func muzzle(pos: Vector2, angle: float, kind: String, side := 1.0) -> void:
@@ -34,8 +35,12 @@ func blast(pos: Vector2, power := 1.0) -> void:
 func popup(text: String, pos: Vector2) -> void:
 	texts.append({"text": text, "p": pos, "t": 0.0})
 
+## Sonic Tank shockwave: three expanding arcs along the firing line.
+func sonic_wave(from: Vector2, dir: Vector2, length: float, team: int) -> void:
+	waves.append({"p": from, "a": dir.angle(), "len": length, "team": team, "t": 0.0, "life": 0.42})
+
 func _process(delta: float) -> void:
-	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty():
+	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty() and waves.is_empty():
 		return
 	for f in flashes:
 		f["t"] = float(f["t"]) + delta
@@ -46,10 +51,13 @@ func _process(delta: float) -> void:
 	for t in texts:
 		t["t"] = float(t["t"]) + delta
 		t["p"] = t["p"] + Vector2(0.0, -30.0 * delta)
+	for w in waves:
+		w["t"] = float(w["t"]) + delta
 	flashes = flashes.filter(func(f): return float(f["t"]) < float(f["life"]))
 	impacts = impacts.filter(func(i): return float(i["t"]) < float(i["life"]))
 	blasts = blasts.filter(func(b): return float(b["t"]) < 0.5)
 	texts = texts.filter(func(t): return float(t["t"]) < 1.6)
+	waves = waves.filter(func(w): return float(w["t"]) < float(w["life"]))
 	queue_redraw()
 
 func _draw() -> void:
@@ -61,11 +69,27 @@ func _draw() -> void:
 		var r := (18.0 * (1.0 - k) + 4.0) * power
 		draw_circle(b["p"], r, Color(1.0, 0.50, 0.12, k * 0.78))
 		draw_circle(b["p"], r * 0.55, Color(1.0, 0.86, 0.34, k * 0.88))
+	for w in waves:
+		_draw_wave(w)
 	for f in flashes:
 		_draw_muzzle(f)
 	for t in texts:
 		var k := clampf(1.0 - float(t["t"]) / 1.6, 0.0, 1.0)
 		draw_string(ThemeDB.fallback_font, t["p"], String(t["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 1.0, 0.85, k))
+
+func _draw_wave(w: Dictionary) -> void:
+	var k := clampf(1.0 - float(w["t"]) / float(w["life"]), 0.0, 1.0)
+	var origin: Vector2 = w["p"]
+	var angle := float(w["a"])
+	var length := float(w["len"])
+	var col: Color = GameDefs.team_color(int(w["team"])).lightened(0.35)
+	for i in 3:
+		var reach := length * (0.30 + float(i) * 0.24) * (1.0 - k * 0.55)
+		var alpha := k * (0.62 - float(i) * 0.14)
+		draw_arc(origin, reach, angle - 0.46, angle + 0.46, 14,
+			Color(col.r, col.g, col.b, alpha), 3.2 - float(i) * 0.6)
+	draw_line(origin, origin + Vector2.RIGHT.rotated(angle) * length * (0.4 + 0.6 * (1.0 - k)),
+		Color(col.r, col.g, col.b, k * 0.22), 1.2)
 
 func _draw_muzzle(f: Dictionary) -> void:
 	var k := clampf(1.0 - float(f["t"]) / float(f["life"]), 0.0, 1.0)
@@ -113,6 +137,15 @@ func _draw_impact(i: Dictionary) -> void:
 			draw_circle(p, r * 0.55, Color(1.0, 0.88, 0.40, 0.92 * k))
 			draw_circle(p + Vector2(-5.0, 3.0), r * 0.82, Color(0.44, 0.41, 0.36, 0.50 * k))
 			draw_circle(p + Vector2(5.0, -4.0), r * 0.56, Color(0.62, 0.58, 0.51, 0.38 * k))
+		"gas":
+			var r := (15.0 * (1.0 - k) + 6.0) * power
+			draw_circle(p, r, Color(0.22, 0.74, 0.30, 0.34 * k))
+			draw_circle(p, r * 0.72, Color(0.34, 0.88, 0.36, 0.34 * k))
+			draw_circle(p, r * 0.40, Color(0.68, 1.0, 0.58, 0.46 * k))
+			for puff in 5:
+				var a := TAU * float(puff) / 5.0 + float(puff)
+				draw_circle(p + Vector2(cos(a), sin(a)) * r * 0.8, 2.4 * k + 1.0,
+					Color(0.36, 0.90, 0.44, 0.30 * k))
 		"light", "rifle":
 			draw_circle(p, 4.0 * k + 1.5, Color(0.72, 0.58, 0.36, 0.62 * k))
 			draw_circle(p + Vector2(3.0, 1.0), 2.2 * k + 0.8, Color(0.82, 0.70, 0.48, 0.46 * k))

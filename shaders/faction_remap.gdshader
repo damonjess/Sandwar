@@ -9,11 +9,15 @@ shader_type canvas_item;
 // vents, warning reds - is left untouched.
 //
 // faction_color: blue (Atreides), red (Harkonnen) or green (Ordos).
-// The HUD icons use the same material, so a build tile matches the battlefield.
+// HUD icons use the same material, with icon_blue_trim enabled for their blue
+// house paint, so every build tile matches the battlefield.
 
 uniform vec4 faction_color : source_color = vec4(0.25, 0.58, 0.95, 1.0);
 uniform vec4 damage_tint : source_color = vec4(1.0);
 uniform float remap_strength : hint_range(0.0, 1.0) = 1.0;
+// HUD portraits use baked blue trim rather than the world sheets' magenta key.
+// Enable this only on sidebar/briefing materials so world art stays untouched.
+uniform float icon_blue_trim : hint_range(0.0, 1.0) = 0.0;
 
 void fragment() {
 	vec4 base = COLOR;
@@ -29,6 +33,15 @@ void fragment() {
 			* step(c.g * 1.06, c.b)
 			* smoothstep(0.18, 0.42, sat)
 			* step(0.10, c.b);
+
+	// The 64px build portraits were baked with blue house paint. Key it
+	// separately, but exclude cyan instrument glows (blue and green near equal).
+	float blue_key = step(c.r * 1.20, c.b)
+			* step(c.g * 1.18, c.b)
+			* smoothstep(0.24, 0.50, sat)
+			* step(0.12, c.b)
+			* icon_blue_trim;
+	key = max(key, blue_key);
 
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	float shade = clamp((lum - 0.08) / 0.55, 0.0, 1.5);

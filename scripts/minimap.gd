@@ -47,9 +47,9 @@ func _draw() -> void:
 	if not game.has_power(GameDefs.PLAYER):
 		_draw_static()
 		return
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.004, 0.008, 0.006))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.006, 0.010, 0.008))
 	var r := map_rect()
-	draw_rect(r, Color(0.003, 0.006, 0.004))
+	draw_rect(r, Color(0.006, 0.013, 0.008))
 	# Faint phosphor graph paper beneath the live sweep.
 	for gx in range(0, int(r.size.x) + 1, 16):
 		draw_line(Vector2(r.position.x + gx, r.position.y), Vector2(r.position.x + gx, r.end.y),
@@ -68,49 +68,37 @@ func _draw() -> void:
 				continue
 			var c: Color
 			if game.terrain.concrete[i] == 1:
-				c = Color(0.30, 0.36, 0.19)
+				c = Color(0.25, 0.32, 0.16)
 			elif game.terrain.types[i] == GameDefs.ROCK:
-				c = Color(0.18, 0.27, 0.14)
+				c = Color(0.14, 0.22, 0.11)
 			else:
-				c = Color(0.12, 0.20, 0.10)
+				c = Color(0.10, 0.17, 0.085)
 			if game.terrain.spice[i] > 6.0:
-				c = Color(0.37, 0.25, 0.09)
+				c = Color(0.32, 0.22, 0.08)
 			if game.terrain.lit[i] == 0:
 				c = c.darkened(0.54)
 			draw_rect(Rect2(r.position + Vector2(float(x), float(y)) * tile_px, Vector2(tile_px + 0.6, tile_px + 0.6)), c)
 
-	var player_green := Color(0.55, 0.98, 0.40)
-	var enemy_red := Color(0.95, 0.30, 0.20)
+	# House colours, brightened for the dark radar glass.
 	for b in game.buildings:
 		if is_instance_valid(b) and not b.dead and b.visible:
 			var p: Vector2 = r.position + b.global_position / float(GameDefs.WORLD) * r.size
-			var col := player_green if b.team == GameDefs.PLAYER else enemy_red
+			var col := GameDefs.team_color(b.team).lightened(0.18)
 			if b.type_id == "cy" and b.team == GameDefs.PLAYER:
-				# The reference radar's bright base bracket.
-				draw_rect(Rect2(p - Vector2(8.0, 8.0), Vector2(16.0, 16.0)), Color(0.40, 0.95, 0.30, 0.88), false, 1.2)
+				# The reference radar's bright base bracket, in the player's House colour.
+				draw_rect(Rect2(p - Vector2(8.0, 8.0), Vector2(16.0, 16.0)), Color(col.r, col.g, col.b, 0.88), false, 1.2)
 			draw_rect(Rect2(p - Vector2(2.5, 2.5), Vector2(5.0, 5.0)), col)
 	for u in game.units:
 		if is_instance_valid(u) and not u.dead and u.visible:
 			var p: Vector2 = r.position + u.global_position / float(GameDefs.WORLD) * r.size
-			var col := player_green if u.team == GameDefs.PLAYER else enemy_red
+			var col := GameDefs.team_color(u.team).lightened(0.28)
 			draw_rect(Rect2(p - Vector2(1.0, 1.0), Vector2(2.0, 2.0)), col)
 
-	# Camera frame, kept dim so the radar reads like the reference.
-	var vp: Vector2 = get_viewport_rect().size
-	var inv: Transform2D = get_viewport().get_canvas_transform().affine_inverse()
-	var w0: Vector2 = inv * Vector2.ZERO
-	var w1: Vector2 = inv * Vector2(maxf(vp.x - GameHUD.PANEL_WIDTH, 1.0), vp.y)
-	var world_rect := Rect2(w0, w1 - w0)
-	var frame_pos: Vector2 = r.position + world_rect.position / float(GameDefs.WORLD) * r.size
-	var frame_size: Vector2 = world_rect.size / float(GameDefs.WORLD) * r.size
-	draw_rect(Rect2(frame_pos, frame_size), Color(0.55, 0.95, 0.38, 0.34), false, 1.0)
-
 	# Fine CRT scan lines, a single bright sweep, and a dark glass vignette.
+	# Dune's radar glass is black with fine warm-grey raster lines, not a green wash.
 	for sy in range(0, int(size.y) + 1, 3):
-		draw_line(Vector2(0.0, float(sy)), Vector2(size.x, float(sy)), Color(0.0, 0.02, 0.0, 0.24), 1.0)
-	var sweep := r.position.y + fmod(Time.get_ticks_msec() * 0.020, r.size.y)
-	draw_line(Vector2(r.position.x, sweep), Vector2(r.end.x, sweep), Color(0.52, 0.95, 0.45, 0.22), 1.0)
-	draw_rect(r.grow(-0.5), Color(0.08, 0.16, 0.07, 0.50), false, 1.0)
+		draw_line(Vector2(0.0, float(sy)), Vector2(size.x, float(sy)), Color(0.15, 0.10, 0.09, 0.72), 1.0)
+	draw_rect(r.grow(-0.5), Color(0.08, 0.16, 0.07, 0.30), false, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.01, 0.0, 0.16))
 
 
@@ -133,7 +121,7 @@ func _draw_static() -> void:
 		var p := r.position + Vector2(rng.randf() * r.size.x, rng.randf() * r.size.y)
 		draw_rect(Rect2(p, Vector2(rng.randf_range(1.0, 3.0), 1.0)), Color(0.47, 0.62, 0.40, rng.randf_range(0.05, 0.16)))
 	for sy in range(0, int(size.y) + 1, 3):
-		draw_line(Vector2(0.0, float(sy)), Vector2(size.x, float(sy)), Color(0.0, 0.02, 0.0, 0.26), 1.0)
+		draw_line(Vector2(0.0, float(sy)), Vector2(size.x, float(sy)), Color(0.0, 0.025, 0.0, 0.40), 1.0)
 	var font := ThemeDB.fallback_font
 	if font != null:
 		draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.5 + 4.0), "NO SIGNAL", HORIZONTAL_ALIGNMENT_CENTER,

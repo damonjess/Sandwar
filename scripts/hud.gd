@@ -56,6 +56,15 @@ var hammer_button: ActionIcon
 var status_orb: StatusOrb
 var options_button: Button
 var options_popup: PanelContainer
+var briefing_button: TouchButton
+var mission_banner: Label
+var objective_plate: ObjectivePlate
+var toast_plate: ToastPlate
+var toast_label: Label
+var toast_timer := 0.0
+var briefing_overlay: Control
+var briefing_prev_game_mode := Node.PROCESS_MODE_INHERIT
+var debug_win_button: TouchButton
 var credits_plate: Control
 var quick_strip: HBoxContainer
 var screen_footer: PanelContainer
@@ -64,6 +73,7 @@ var tab := "all"
 var overlay: Control
 var overlay_title: Label
 var overlay_body: Label
+var overlay_buttons: VBoxContainer
 var refresh_timer := 0.0
 
 const STRUCTURE_ITEMS := [
@@ -76,24 +86,7 @@ const STRUCTURE_ITEMS := [
 	["brush", "slab"],
 	["brush", "wall"],
 ]
-const INFANTRY_ITEMS := [
-	["unit", "infantry"],
-	["unit", "rocket"],
-]
-const VEHICLE_ITEMS := [
-	["unit", "trike"],
-	["unit", "quad"],
-	["unit", "tank"],
-	["unit", "harvester"],
-]
-const UNIT_ITEMS := [
-	["unit", "infantry"],
-	["unit", "rocket"],
-	["unit", "trike"],
-	["unit", "quad"],
-	["unit", "tank"],
-	["unit", "harvester"],
-]
+## Units come from the player's House roster at runtime, not a fixed list.
 
 # ------------------------------------------------------------------ widgets
 
@@ -163,7 +156,7 @@ class PowerBar:
 		draw_rect(Rect2(rail.end.x - 0.5, rail.position.y, 2.0, rail.size.y), Color(0.10, 0.30, 0.52, 0.96))
 		var deficit := used > generated + 0.01
 		var near := not deficit and (generated - used) <= maxf(generated * 0.15, 1.0)
-		var lit_color := Color(0.94, 0.32, 0.20) if deficit else (Color(0.96, 0.76, 0.20) if near else Color(0.55, 0.86, 0.25))
+		var lit_color := Color(0.94, 0.32, 0.20) if deficit else (Color(0.96, 0.76, 0.20) if near else Color(0.36, 0.68, 0.18))
 		if deficit:
 			lit_color.a = 0.58 + 0.42 * absf(sin(_clock * 7.0))
 		var segments := 28
@@ -302,15 +295,55 @@ class StatusOrb:
 	func _draw() -> void:
 		var c := size * 0.5
 		var rad := minf(size.x, size.y) * 0.39
-		var col := Color(0.48, 0.86, 0.30)
-		if level == "warn":
-			col = Color(1.0, 0.72, 0.20)
-		elif level == "bad":
-			col = Color(1.0, 0.28, 0.16)
-		var pulse := 0.56 + 0.44 * absf(sin(_clock * (4.4 if level == "bad" else 2.1)))
-		draw_circle(c, rad + 2.0, Color(col.r, col.g, col.b, 0.045 + 0.04 * pulse))
-		draw_arc(c, rad, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.60 + 0.35 * pulse), 1.4)
-		draw_arc(c, rad - 2.2, PI * 0.15, PI * 0.85, 14, Color(1.0, 0.91, 0.63, 0.55), 1.0)
+		var col := Color(1.0, 0.73, 0.24)
+		if level == "bad":
+			col = Color(1.0, 0.30, 0.16)
+		var pulse := 0.55 + 0.45 * absf(sin(_clock * (4.4 if level == "bad" else 1.9)))
+		draw_circle(c, rad + 2.0, Color(col.r, col.g, col.b, 0.035 + 0.035 * pulse))
+		draw_arc(c, rad, -PI * 0.80, PI * 0.80, 24, Color(1.0, 0.78, 0.32, 0.20 + 0.16 * pulse), 1.0)
+		draw_arc(c, rad - 2.2, PI * 0.15, PI * 0.85, 14, Color(1.0, 0.91, 0.63, 0.42), 1.0)
+
+
+## Dark bronze HUD plate behind the mission objective tracker. Matches the
+## credits cradle so the tracker stays legible over bright sand and rock.
+class ObjectivePlate:
+	extends Control
+
+	var accent := GameHUD.C_GOLD
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		draw_rect(r, Color(0.022, 0.028, 0.025, 0.95))
+		draw_rect(r, GameHUD.C_FRAME, false, 2.0)
+		draw_line(Vector2(3.0, 3.0), Vector2(size.x - 3.0, 3.0), GameHUD.C_FRAME_HI, 1.0)
+		draw_rect(Rect2(8.0, 7.0, size.x - 16.0, size.y - 14.0), Color(0.013, 0.018, 0.016), false, 1.0)
+		draw_rect(Rect2(4.0, 5.0, 3.0, size.y - 10.0), Color(accent.r, accent.g, accent.b, 0.92))
+		draw_rect(Rect2(7.0, 5.0, 1.0, size.y - 10.0), Color(accent.r, accent.g, accent.b, 0.24))
+		for x in [9.0, size.x - 9.0]:
+			for y in [8.0, size.y - 8.0]:
+				draw_circle(Vector2(x, y), 2.1, GameHUD.C_BRASS)
+				draw_circle(Vector2(x, y) + Vector2(-0.4, -0.5), 0.8, Color(1.0, 0.9, 0.58))
+		draw_line(Vector2(12.0, size.y - 7.0), Vector2(size.x - 12.0, size.y - 7.0),
+			Color(0.35, 0.22, 0.11, 0.58), 1.0)
+
+
+## Compact opening objective flash, same bronze language as the tracker.
+class ToastPlate:
+	extends Control
+
+	var accent := GameHUD.C_GOLD
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		draw_rect(r, Color(0.020, 0.026, 0.023, 0.97))
+		draw_rect(r, GameHUD.C_FRAME, false, 2.0)
+		draw_line(Vector2(3.0, 3.0), Vector2(size.x - 3.0, 3.0), GameHUD.C_FRAME_HI, 1.0)
+		draw_rect(Rect2(3.0, 3.0, 5.0, size.y - 6.0), Color(accent.r, accent.g, accent.b, 0.88))
+		draw_rect(Rect2(size.x - 8.0, 3.0, 5.0, size.y - 6.0), Color(accent.r, accent.g, accent.b, 0.88))
+		draw_rect(Rect2(11.0, 6.0, size.x - 22.0, size.y - 12.0), Color(0.010, 0.015, 0.013), false, 1.0)
+		for x in [10.0, size.x - 10.0]:
+			draw_circle(Vector2(x, 9.0), 2.0, GameHUD.C_BRASS)
+			draw_circle(Vector2(x, size.y - 9.0), 2.0, GameHUD.C_BRASS)
 
 
 ## Dark steel digital credits cradle shown above the battlefield.
@@ -346,8 +379,16 @@ class ScrollArrow:
 	func _gui_input(event: InputEvent) -> void:
 		var hit := false
 		if event is InputEventMouseButton:
+			if not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_down = false
+				queue_redraw()
+				return
 			hit = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
 		elif event is InputEventScreenTouch:
+			if not event.pressed:
+				_down = false
+				queue_redraw()
+				return
 			hit = event.pressed and event.index <= 0
 		if hit:
 			accept_event()
@@ -435,6 +476,13 @@ class BuildTile:
 
 	const TOP := Color("4b2a18")
 	const BOTTOM := Color("1a0c09")
+	const SAND_TEX := preload("res://assets/sprites/d2/terrain_sand.png")
+	const ROCK_TEX := preload("res://assets/sprites/d2/terrain_rock.png")
+	# #14100CCC plate, #F2C96B afford / #E05252 cannot-afford text.
+	const COST_PLATE := Color(20.0 / 255.0, 16.0 / 255.0, 12.0 / 255.0, 0.80)
+	const COST_OUTLINE := Color(0.025, 0.018, 0.012, 0.94)
+	const COST_GOLD := Color(242.0 / 255.0, 201.0 / 255.0, 107.0 / 255.0)
+	const COST_RED := Color(224.0 / 255.0, 82.0 / 255.0, 82.0 / 255.0)
 
 	func can_cancel() -> bool:
 		return queue_count > 0 or ready_state
@@ -525,6 +573,9 @@ class BuildTile:
 		_ignore_release = false
 		accept_event()
 
+	func _ready() -> void:
+		clip_contents = true
+
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_MOUSE_ENTER:
 			hovered = true
@@ -541,20 +592,28 @@ class BuildTile:
 		draw_colored_polygon(pts, col)
 
 	func _draw_portrait_background(w: float, h: float) -> void:
-		for i in 10:
-			var t := float(i) / 9.0
-			draw_rect(Rect2(0.0, h * float(i) / 10.0, w, h / 10.0 + 1.0), TOP.lerp(BOTTOM, t))
+		# A cropped patch of the actual terrain gives each slot the warm, grainy
+		# diorama backdrop of the original build portraits.
+		var tex: Texture2D = SAND_TEX if kind == "unit" else ROCK_TEX
+		var source := Vector2(150.0, 96.0)
+		var tsz := tex.get_size()
 		var hsh := absi(item_id.hash())
-		for i in 9:
-			var fx := float((hsh / (i + 1) + i * 53) % 997) / 997.0
-			var fy := float((hsh / (i + 3) + i * 91) % 991) / 991.0
-			var x := fx * w
-			var y := fy * h
-			draw_line(Vector2(x, y), Vector2(minf(w, x + 8.0 + float(i % 4) * 6.0), minf(h, y + 2.0)),
-				Color(0.84, 0.53, 0.28, 0.08 + 0.03 * float(i % 3)), 1.0)
-		draw_line(Vector2(0.0, h * 0.61), Vector2(w, h * 0.57), Color(0.87, 0.60, 0.30, 0.16), 1.0)
-		_ellipse(Vector2(w * 0.5, h * 0.76), w * 0.35, h * 0.13, Color(0.02, 0.012, 0.008, 0.45))
-		draw_circle(Vector2(w * 0.5, h * 0.42), h * 0.42, Color(0.96, 0.62, 0.28, 0.055))
+		var sx := float(hsh % maxi(1, int(tsz.x - source.x)))
+		var sy := float((hsh / 7 + hsh / 31) % maxi(1, int(tsz.y - source.y)))
+		draw_texture_rect_region(tex, Rect2(0.0, 0.0, w, h), Rect2(Vector2(sx, sy), source),
+			Color(0.72, 0.52, 0.37, 1.0))
+		for i in 7:
+			var t := float(i) / 6.0
+			draw_rect(Rect2(0.0, h * float(i) / 7.0, w, h / 7.0 + 1.0),
+				Color(0.055, 0.020, 0.012, 0.08 + t * 0.13))
+		draw_rect(Rect2(0.0, 0.0, w, 2.0), Color(0.04, 0.018, 0.010, 0.50))
+		draw_rect(Rect2(0.0, h - 2.0, w, 2.0), Color(0.02, 0.010, 0.006, 0.72))
+		_ellipse(Vector2(w * 0.5, h * 0.78), w * 0.36, h * 0.12, Color(0.02, 0.010, 0.006, 0.38))
+		draw_circle(Vector2(w * 0.5, h * 0.42), h * 0.54, Color(1.0, 0.76, 0.38, 0.045))
+		# Slightly darker edges keep the small hero model crisp against the sand.
+		draw_rect(Rect2(0.0, 0.0, 2.0, h), Color(0.02, 0.010, 0.005, 0.24))
+		draw_rect(Rect2(w - 2.0, 0.0, 2.0, h), Color(0.02, 0.010, 0.005, 0.24))
+
 
 	func _draw_status_grid() -> void:
 		var cell := 3.6
@@ -591,7 +650,9 @@ class BuildTile:
 		else:
 			icon = BuildingArt.icon(item_id)
 		if icon != null:
-			var box := minf(w * 0.80, h * 0.88)
+			# Structures are close-up dioramas; units keep their full silhouette,
+			# matching the two visual treatments in the reference portraits.
+			var box := minf(w * 1.28, h * 1.42) if kind != "unit" else minf(w * 1.02, h * 1.12)
 			var aspect := float(icon.get_width()) / float(icon.get_height())
 			var iw := box * minf(aspect, 1.0)
 			var ih := box / maxf(aspect, 0.01)
@@ -606,8 +667,6 @@ class BuildTile:
 				w - 8.0, 9, Color(0.88, 0.78, 0.58, 0.9))
 		if not available:
 			draw_rect(rect, Color(0.02, 0.012, 0.008, 0.48))
-		# A soft Atreides-blue edge keeps the photo plates from reading flat.
-		draw_line(Vector2(2.0, 1.0), Vector2(w - 2.0, 1.0), Color(0.35, 0.54, 0.92, 0.35), 1.0)
 		if progress > 0.001 and not ready_state:
 			var lit_h := (h - 4.0) * clampf(progress, 0.0, 1.0)
 			draw_rect(Rect2(2.0, h - 3.0 - lit_h, w - 4.0, lit_h), Color(0.48, 0.86, 0.20, 0.13))
@@ -640,6 +699,29 @@ class BuildTile:
 			draw_rect(band, Color(0.045, 0.030, 0.012, 0.88))
 			draw_string(get_theme_default_font(), band.position + Vector2(0.0, 9.5), "READY",
 				HORIZONTAL_ALIGNMENT_CENTER, band.size.x, 9, Color(1.0, 0.87, 0.32, pulse))
+		# Bottom-right price plate: clear of the top-left status grid, the
+		# top-right queue/cancel controls, the centre progress/READY band and
+		# the icon's contact shadow. The text redraws every HUD refresh.
+		if cost > 0:
+			var cost_font := get_theme_default_font()
+			var cost_fs := 10 if h >= 58.0 else 9
+			var cost_text := "$%d" % cost
+			var cost_size := cost_font.get_string_size(cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs)
+			var plate_w := maxf(22.0, ceilf(cost_size.x) + 7.0)
+			var plate_h := float(cost_fs) + 5.0
+			var plate := Rect2(w - plate_w - 3.0, h - plate_h - 3.0, plate_w, plate_h)
+			var affordable := true
+			if game != null:
+				affordable = int(game.credits[0]) >= cost
+			var cost_col := COST_GOLD if affordable else COST_RED
+			draw_rect(plate, COST_PLATE)
+			draw_rect(plate, COST_OUTLINE, false, 1.0)
+			var baseline := plate.position.y + (plate_h + cost_font.get_ascent(cost_fs) - cost_font.get_descent(cost_fs)) * 0.5
+			var tx := plate.position.x + 3.5
+			draw_string(cost_font, Vector2(tx + 1.0, baseline + 1.0), cost_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, COST_OUTLINE)
+			draw_string(cost_font, Vector2(tx, baseline), cost_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, cost_col)
 		if cancel_flash > 0.0:
 			draw_rect(Rect2(Vector2(1.0, 1.0), size - Vector2(2.0, 2.0)), Color(1.0, 0.28, 0.12, 0.15))
 			draw_rect(Rect2(Vector2(1.0, 1.0), size - Vector2(2.0, 2.0)), Color(1.0, 0.58, 0.28, 0.76), false, 1.5)
@@ -656,6 +738,7 @@ func setup(g) -> void:
 	_build_overlay()
 	_rebuild_grid()
 	refresh()
+	_show_objective_toast()
 
 func _inset_style() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -783,7 +866,7 @@ func _build_panel() -> void:
 	root.add_child(right["control"])
 
 	power_bar = PowerBar.new()
-	var power_rect := _ref_rect(6.0, 191.0, 12.0, 179.0)
+	var power_rect := _ref_rect(7.0, 191.0, 10.0, 179.0)
 	power_bar.position = power_rect.position
 	power_bar.size = power_rect.size
 	root.add_child(power_bar)
@@ -959,6 +1042,65 @@ func _build_top_bar() -> void:
 	options_button.pressed.connect(func(): _tap(); _toggle_options())
 	top.add_child(options_button)
 
+	objective_plate = ObjectivePlate.new()
+	objective_plate.anchor_left = 0.0
+	objective_plate.anchor_right = 1.0
+	objective_plate.offset_left = 330.0
+	objective_plate.offset_right = -PANEL_WIDTH - 222.0
+	objective_plate.offset_top = 7.0
+	objective_plate.offset_bottom = 41.0
+	objective_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	objective_plate.visible = false
+	top.add_child(objective_plate)
+
+	mission_banner = Label.new()
+	mission_banner.anchor_left = 0.0
+	mission_banner.anchor_right = 1.0
+	mission_banner.offset_left = 338.0
+	mission_banner.offset_right = -PANEL_WIDTH - 230.0
+	mission_banner.offset_top = 11.0
+	mission_banner.offset_bottom = 38.0
+	mission_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mission_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	mission_banner.add_theme_font_size_override("font_size", 11)
+	mission_banner.add_theme_color_override("font_color", C_GOLD)
+	mission_banner.add_theme_color_override("font_shadow_color", Color(0.01, 0.01, 0.01, 0.92))
+	mission_banner.add_theme_constant_override("shadow_offset_x", 1)
+	mission_banner.add_theme_constant_override("shadow_offset_y", 1)
+	mission_banner.clip_text = true
+	mission_banner.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	mission_banner.visible = false
+	top.add_child(mission_banner)
+
+	toast_plate = ToastPlate.new()
+	toast_plate.anchor_left = 0.5
+	toast_plate.anchor_right = 0.5
+	toast_plate.offset_left = -340.0
+	toast_plate.offset_right = 340.0
+	toast_plate.offset_top = 48.0
+	toast_plate.offset_bottom = 84.0
+	toast_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast_plate.visible = false
+	toast_plate.z_index = 2
+	top.add_child(toast_plate)
+	toast_label = Label.new()
+	toast_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	toast_label.offset_left = 16.0
+	toast_label.offset_right = -16.0
+	toast_label.offset_top = 4.0
+	toast_label.offset_bottom = -4.0
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	toast_label.add_theme_font_size_override("font_size", 11)
+	toast_label.add_theme_color_override("font_color", C_TEXT)
+	toast_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.95))
+	toast_label.add_theme_constant_override("shadow_offset_x", 1)
+	toast_label.add_theme_constant_override("shadow_offset_y", 1)
+	toast_label.clip_text = true
+	toast_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast_plate.add_child(toast_label)
+
 	credits_plate = CreditsPlate.new()
 	credits_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	credits_plate.offset_left = -PANEL_WIDTH - 208.0
@@ -989,7 +1131,7 @@ func _build_top_bar() -> void:
 
 	options_popup = PanelContainer.new()
 	options_popup.position = Vector2(12.0, 48.0)
-	options_popup.size = Vector2(238.0, 152.0)
+	options_popup.size = Vector2(250.0, 334.0)
 	options_popup.z_index = 80
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.07, 0.07, 0.06, 0.985)
@@ -1016,26 +1158,73 @@ func _build_top_bar() -> void:
 	opt_hint.add_theme_color_override("font_color", C_DIM)
 	opt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	opt_col.add_child(opt_hint)
-	var resume := Button.new()
+	var resume := TouchButton.new()
 	resume.text = "RESUME"
-	resume.focus_mode = Control.FOCUS_NONE
-	resume.custom_minimum_size = Vector2(0.0, 26.0)
-	resume.add_theme_font_size_override("font_size", 11)
-	resume.add_theme_color_override("font_color", C_TEXT)
-	resume.add_theme_stylebox_override("normal", _button_style(Color(0.20, 0.16, 0.09)))
-	resume.add_theme_stylebox_override("hover", _button_style(Color(0.32, 0.24, 0.12)))
+	resume.primary = true
+	resume.font_size = 11
+	resume.custom_minimum_size = Vector2(0.0, 28.0)
+	resume.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	resume.pressed.connect(func(): _tap(); options_popup.visible = false)
 	opt_col.add_child(resume)
-	var restart := Button.new()
+	briefing_button = TouchButton.new()
+	briefing_button.text = "MISSION BRIEFING"
+	briefing_button.tooltip_text = "Review the Mentat orders and primary objective"
+	briefing_button.font_size = 10
+	briefing_button.custom_minimum_size = Vector2(0.0, 28.0)
+	briefing_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	briefing_button.pressed.connect(func(): _tap(); _open_mission_briefing())
+	opt_col.add_child(briefing_button)
+	var restart := TouchButton.new()
 	restart.text = "RESTART BATTLE"
-	restart.focus_mode = Control.FOCUS_NONE
-	restart.custom_minimum_size = Vector2(0.0, 26.0)
-	restart.add_theme_font_size_override("font_size", 11)
-	restart.add_theme_color_override("font_color", C_DIM)
-	restart.add_theme_stylebox_override("normal", _button_style(Color(0.14, 0.11, 0.08)))
-	restart.add_theme_stylebox_override("hover", _button_style(Color(0.25, 0.18, 0.10)))
+	restart.font_size = 10
+	restart.custom_minimum_size = Vector2(0.0, 28.0)
+	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	restart.pressed.connect(func(): _tap(); game.restart())
 	opt_col.add_child(restart)
+
+	# House / main-menu navigation. Both land on the House Selection screen,
+	# which is the campaign's front end; picking a House launches a fresh battle
+	# with that roster and colour.
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 6)
+	opt_col.add_child(nav)
+	var change_house := TouchButton.new()
+	change_house.text = "CHANGE HOUSE"
+	change_house.tooltip_text = "Return to the House Selection / main menu"
+	change_house.font_size = 9
+	change_house.custom_minimum_size = Vector2(0.0, 30.0)
+	change_house.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	change_house.pressed.connect(func(): _tap(); _open_house_select())
+	nav.add_child(change_house)
+	var main_menu := TouchButton.new()
+	main_menu.text = "MAIN MENU"
+	main_menu.tooltip_text = "Leave the battle and choose a House"
+	main_menu.font_size = 9
+	main_menu.custom_minimum_size = Vector2(0.0, 30.0)
+	main_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main_menu.pressed.connect(func(): _tap(); _open_house_select())
+	nav.add_child(main_menu)
+
+	# Deliberately tucked below the normal navigation, in the testing corner.
+	debug_win_button = TouchButton.new()
+	debug_win_button.text = "DEBUG: WIN MISSION"
+	debug_win_button.font_size = 9
+	debug_win_button.accent = Color(0.92, 0.38, 0.22)
+	debug_win_button.custom_minimum_size = Vector2(0.0, 30.0)
+	debug_win_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	debug_win_button.tooltip_text = "Testing helper: immediately complete this mission"
+	debug_win_button.pressed.connect(func(): _tap(); options_popup.visible = false; game.debug_win_mission())
+	opt_col.add_child(debug_win_button)
+
+	var test_note := Label.new()
+	test_note.text = "TESTING HELPER — FORCE MISSION VICTORY"
+	test_note.add_theme_font_size_override("font_size", 8)
+	test_note.add_theme_color_override("font_color", Color(0.66, 0.39, 0.29))
+	test_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	opt_col.add_child(test_note)
+
+func _open_house_select() -> void:
+	get_tree().change_scene_to_file("res://scenes/house_select.tscn")
 
 func _toggle_options() -> void:
 	if options_popup == null:
@@ -1043,6 +1232,35 @@ func _toggle_options() -> void:
 	options_popup.visible = not options_popup.visible
 	if options_popup.visible:
 		options_popup.move_to_front()
+
+func _open_mission_briefing() -> void:
+	if game == null or not game.campaign_mission:
+		return
+	if briefing_overlay != null and is_instance_valid(briefing_overlay):
+		return
+	options_popup.visible = false
+	var scene := load("res://scenes/mission_briefing.tscn").instantiate() as Control
+	scene.set("embedded", true)
+	scene.set("mission_override", game.mission.duplicate(true))
+	scene.process_mode = Node.PROCESS_MODE_ALWAYS
+	scene.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scene.connect("closed", _close_mission_briefing)
+	briefing_overlay = scene
+	add_child(scene)
+	briefing_prev_game_mode = game.process_mode
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	game.process_mode = Node.PROCESS_MODE_DISABLED
+
+func _close_mission_briefing() -> void:
+	if briefing_overlay != null and is_instance_valid(briefing_overlay):
+		briefing_overlay.queue_free()
+	briefing_overlay = null
+	if game != null:
+		game.process_mode = briefing_prev_game_mode
+	process_mode = Node.PROCESS_MODE_INHERIT
+
+func briefing_open() -> bool:
+	return briefing_overlay != null and is_instance_valid(briefing_overlay)
 
 func _on_quick(method: String) -> void:
 	_tap()
@@ -1057,7 +1275,7 @@ func _build_overlay() -> void:
 	add_child(overlay)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.03, 0.02, 0.01, 0.72)
+	dim.color = Color(0.03, 0.02, 0.01, 0.78)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(dim)
 
@@ -1066,26 +1284,30 @@ func _build_overlay() -> void:
 	overlay.add_child(center)
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 16)
+	box.add_theme_constant_override("separation", 12)
 	center.add_child(box)
 
 	overlay_title = Label.new()
-	overlay_title.add_theme_font_size_override("font_size", 48)
+	overlay_title.add_theme_font_size_override("font_size", 44)
 	overlay_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(overlay_title)
 
 	overlay_body = Label.new()
-	overlay_body.add_theme_font_size_override("font_size", 20)
+	overlay_body.add_theme_font_size_override("font_size", 18)
 	overlay_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	overlay_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	overlay_body.custom_minimum_size = Vector2(680.0, 0.0)
 	box.add_child(overlay_body)
 
-	var again := Button.new()
-	again.text = "FIGHT AGAIN"
-	again.custom_minimum_size = Vector2(300.0, 64.0)
-	again.add_theme_font_size_override("font_size", 20)
-	again.focus_mode = Control.FOCUS_NONE
-	again.pressed.connect(func(): game.restart())
-	box.add_child(again)
+	var rule := ColorRect.new()
+	rule.color = Color(0.62, 0.46, 0.22, 0.55)
+	rule.custom_minimum_size = Vector2(680.0, 1.0)
+	box.add_child(rule)
+
+	overlay_buttons = VBoxContainer.new()
+	overlay_buttons.add_theme_constant_override("separation", 8)
+	overlay_buttons.custom_minimum_size = Vector2(360.0, 0.0)
+	box.add_child(overlay_buttons)
 
 # ------------------------------------------------------------------- actions
 
@@ -1116,10 +1338,13 @@ func _rebuild_grid() -> void:
 		unit_grid.remove_child(child)
 		child.queue_free()
 	buttons.clear()
-	for item in STRUCTURE_ITEMS:
+	var tech: int = GameDefs.tech_level
+	for item in GameDefs.structure_items(tech):
 		_add_build_tile(structure_grid, item)
-	for item in UNIT_ITEMS:
-		_add_build_tile(unit_grid, item)
+	# The right-hand column is the House roster, filtered by the mission's tech
+	# level. Quick Skirmish uses max tech, so every unique is testable at once.
+	for id in GameDefs.unit_roster(GameDefs.house_for_team(0), tech):
+		_add_build_tile(unit_grid, ["unit", id])
 	refresh()
 
 func _add_build_tile(column: VBoxContainer, item: Array) -> void:
@@ -1137,14 +1362,14 @@ func _add_build_tile(column: VBoxContainer, item: Array) -> void:
 	tile.item_id = id
 	tile.cost = int(def["cost"])
 	tile.caption = _caption_for(id, String(def["name"]))
-	tile.accent = GameDefs.TEAM_COLORS[0]
+	tile.accent = GameDefs.team_color(0)
 	tile.available = game.can_build(kind, id)
 	var unit_word := " per tile" if kind == "brush" else ""
 	tile.tooltip_text = "%s\n%d credits%s" % [String(def["name"]), int(def["cost"]), unit_word]
 	if kind == "unit" and UnitArt.has_icon(id):
 		tile.material = UnitArt.hud_material(0)
 		tile.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	elif BuildingArt.has_art(id):
+	elif BuildingArt.icon(id) != null:
 		tile.material = BuildingArt.hud_material(0)
 		tile.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	tile.custom_minimum_size = Vector2(0.0, BUILD_ROW_REF_H * SHELL_SCALE)
@@ -1204,13 +1429,36 @@ func _on_item(kind: String, id: String) -> void:
 		game.queue_unit(id)
 	refresh()
 
-func show_result(win: bool, body: String) -> void:
+func show_result(win: bool, body: String, buttons: Array = [], title := "") -> void:
 	overlay.visible = true
+	if toast_plate != null:
+		toast_plate.visible = false
+		toast_timer = 0.0
 	if options_popup != null:
 		options_popup.visible = false
-	overlay_title.text = "VICTORY" if win else "DEFEAT"
+	overlay_title.text = title if title != "" else ("VICTORY" if win else "DEFEAT")
 	overlay_title.add_theme_color_override("font_color", Color(0.55, 0.95, 0.6) if win else Color(0.95, 0.45, 0.4))
 	overlay_body.text = body
+	for child in overlay_buttons.get_children():
+		overlay_buttons.remove_child(child)
+		child.queue_free()
+	var specs: Array = buttons
+	if specs.is_empty():
+		specs = [{"text": "FIGHT AGAIN", "method": "restart", "primary": true}]
+	for spec in specs:
+		var b := TouchButton.new()
+		b.text = String(spec.get("text", "CONTINUE"))
+		b.primary = bool(spec.get("primary", false))
+		b.font_size = 18
+		b.accent = GameDefs.team_color(0)
+		b.custom_minimum_size = Vector2(400.0, 56.0)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var method := String(spec.get("method", "restart"))
+		b.pressed.connect(func():
+			if game != null:
+				game.call(method)
+		)
+		overlay_buttons.add_child(b)
 
 func overlay_visible() -> bool:
 	return overlay != null and overlay.visible
@@ -1226,6 +1474,23 @@ func refresh() -> void:
 	var msgs: Array = game.recent_messages()
 	log_label.text = String(msgs[msgs.size() - 1]) if not msgs.is_empty() else ""
 	status_label.text = game.hud_status()
+	if briefing_button != null:
+		briefing_button.enabled = bool(game.campaign_mission)
+	if mission_banner != null:
+		mission_banner.visible = bool(game.campaign_mission)
+		if objective_plate != null:
+			objective_plate.visible = bool(game.campaign_mission)
+			objective_plate.accent = GameDefs.team_color(0)
+			objective_plate.queue_redraw()
+		if game.campaign_mission:
+			var m: Dictionary = game.mission
+			var progress := CampaignMissions.objective_progress(game, game.objective)
+			mission_banner.text = "M%d/%d  ·  %s  ·  %s" % [
+				int(m.get("tier", 1)), CampaignMissions.TIER_COUNT,
+				String(m.get("region_name", "ARRAKIS")).to_upper(), progress,
+			]
+			var hc := GameDefs.team_color(0).lightened(0.30)
+			mission_banner.add_theme_color_override("font_color", hc)
 	cancel_button.visible = game.placing != "" or game.brush != ""
 	if game.placing != "":
 		cancel_button.text = "KEEP READY"
@@ -1276,7 +1541,26 @@ func refresh() -> void:
 		tile.queue_redraw()
 
 func _process(delta: float) -> void:
+	if toast_timer > 0.0 and toast_plate != null and toast_plate.visible:
+		toast_timer = maxf(0.0, toast_timer - delta)
+		if toast_timer <= 0.0:
+			toast_plate.visible = false
+		elif toast_timer < 0.55:
+			toast_plate.modulate.a = toast_timer / 0.55
 	refresh_timer += delta
 	if refresh_timer >= 0.08:
 		refresh_timer = 0.0
 		refresh()
+
+func _show_objective_toast() -> void:
+	if game == null or toast_plate == null or not game.campaign_mission:
+		return
+	var text := String(game.mission.get("objective_text", ""))
+	if text == "":
+		return
+	toast_label.text = "OBJECTIVE: %s" % text.to_upper()
+	toast_plate.accent = GameDefs.team_color(0)
+	toast_plate.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	toast_plate.visible = true
+	toast_timer = 3.0
+	toast_plate.queue_redraw()

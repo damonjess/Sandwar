@@ -18,14 +18,28 @@ const VEHICLE_FRAMES := 16
 const INFANTRY_DIRS := 8
 const INFANTRY_FRAMES := 4
 
+## Footprint of one baked cell in logical pixels. Every id the baker writes must
+## be listed here, otherwise draw_rect() falls back to 44 px and clips it.
 const CELLS := {
 	"infantry": 36,
 	"rocket": 38,
+	"fremen": 38,
+	"sardaukar": 40,
+	"saboteur": 36,
 	"trike": 48,
+	"raider_trike": 48,
 	"quad": 50,
 	"tank": 60,
+	"atreides_tank": 60,
+	"harkonnen_tank": 62,
+	"ordos_tank": 58,
+	"sonic_tank": 62,
+	"devastator": 66,
+	"deviator": 60,
 	"harvester": 62,
 }
+
+const INFANTRY_IDS := ["infantry", "rocket", "fremen", "sardaukar", "saboteur"]
 
 static var _sheets: Dictionary = {}
 static var _icons: Dictionary = {}
@@ -73,10 +87,9 @@ static func icon(id: String) -> Texture2D:
 static func has_icon(id: String) -> bool:
 	return ResourceLoader.exists("%s/%s_icon.png" % [ICON_DIR, id])
 
+## The house colour for a team, driven by CampaignState through GameDefs.
 static func faction_color(team: int) -> Color:
-	if team == 2:
-		return Color(0.16, 0.80, 0.46)
-	return GameDefs.TEAM_COLORS[clampi(team, 0, GameDefs.TEAM_COLORS.size() - 1)]
+	return GameDefs.team_color(team)
 
 static func material(team: int) -> ShaderMaterial:
 	if _shader == null:
@@ -87,9 +100,14 @@ static func material(team: int) -> ShaderMaterial:
 	return mat
 
 static func hud_material(team: int) -> ShaderMaterial:
-	if not _hud_mats.has(team):
-		_hud_mats[team] = material(team)
-	return _hud_mats[team]
+	# Key by live House as well as team: House Select can begin a new campaign
+	# in the same process, and the sidebar must adopt the new banner colour.
+	var key := "%d:%s" % [team, GameDefs.house_for_team(team)]
+	if not _hud_mats.has(key):
+		var mat := material(team)
+		mat.set_shader_parameter("icon_blue_trim", 1.0)
+		_hud_mats[key] = mat
+	return _hud_mats[key]
 
 ## Direction index in the same convention as Unit.facing: 0 = east, positive
 ## angles turn south in Godot's screen coordinates.
@@ -108,7 +126,7 @@ static func direction_index(angle: float, count: int) -> int:
 
 static func frame_region(id: String, facing: float, anim := 0) -> Rect2:
 	var px := cell(id) * float(SCALE)
-	if id == "infantry" or id == "rocket":
+	if is_infantry(id):
 		var dir := direction_index(facing, INFANTRY_DIRS)
 		var col := clampi(anim, 0, INFANTRY_FRAMES - 1)
 		return Rect2(float(col) * px, float(dir) * px, px, px)
@@ -128,15 +146,19 @@ static func draw_rect(id: String) -> Rect2:
 
 static func muzzle_distance(id: String, radius: float) -> float:
 	match id:
-		"tank":
+		"tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "devastator":
 			return radius * 1.86
-		"rocket":
+		"sonic_tank":
+			return radius * 1.70
+		"deviator":
+			return radius * 1.55
+		"rocket", "fremen", "sardaukar":
 			return radius * 1.58
-		"infantry":
+		"infantry", "saboteur":
 			return radius * 1.46
-		"trike", "quad":
+		"trike", "raider_trike", "quad":
 			return radius * 1.42
 	return radius * 1.2
 
 static func is_infantry(id: String) -> bool:
-	return id == "infantry" or id == "rocket"
+	return INFANTRY_IDS.has(id)

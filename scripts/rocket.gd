@@ -29,10 +29,12 @@ var trail: Array = []
 var impact_done := false
 var visual_scale := 1.0
 var blast_power := 1.8
+## "deviate" marks a Deviator gas missile; it converts the primary vehicle.
+var special := ""
 
 func setup(g, from_team: int, victim, pos: Vector2, dir: Vector2, dmg: float,
 		weapon_id: String, splash: float, splash_share: float, spd: float, turn: float,
-		scale := 1.0, blast := 1.8) -> void:
+		scale := 1.0, blast := 1.8, special_id := "") -> void:
 	game = g
 	source_team = from_team
 	target = victim
@@ -48,6 +50,7 @@ func setup(g, from_team: int, victim, pos: Vector2, dir: Vector2, dmg: float,
 	turn_rate = maxf(turn, 0.1)
 	visual_scale = maxf(scale, 0.2)
 	blast_power = blast
+	special = special_id
 	z_index = 15
 
 func _process(delta: float) -> void:
@@ -83,6 +86,8 @@ func _impact() -> void:
 	impact_done = true
 	var hit_pos := global_position
 	if is_instance_valid(target) and target.has_method("is_alive") and target.is_alive():
+		if special == "deviate" and target.has_method("charm"):
+			target.charm(source_team, 12.0)
 		_apply_damage(target, 1.0)
 	for u in game.units:
 		if u == target or not is_instance_valid(u) or u.dead or u.team == source_team:
@@ -93,7 +98,7 @@ func _impact() -> void:
 			continue
 		_splash_at(b, hit_pos, b.size_px * 0.5)
 	if game.fx != null:
-		game.fx.impact(hit_pos, "rocket", blast_power)
+		game.fx.impact(hit_pos, "gas" if special == "deviate" else "rocket", blast_power)
 	if game.scorch_layer != null:
 		game.scorch_layer.add(hit_pos, 13.0 * visual_scale)
 	game.play_sfx("explosion_small", hit_pos, -2.0)
@@ -131,7 +136,12 @@ func _draw() -> void:
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(3.0, -2.0), Vector2(9.0, 0.0), Vector2(3.0, 2.0),
 	]), Color(0.72, 0.28, 0.20))
-	var team_col: Color = GameDefs.TEAM_COLORS[clampi(source_team, 0, GameDefs.TEAM_COLORS.size() - 1)]
+	var team_col: Color = GameDefs.team_color(source_team)
+	if special == "deviate":
+		# A fat green gas canister instead of a pointed warhead.
+		draw_rect(Rect2(-1.0, -3.0, 7.0, 6.0), Color(0.12, 0.48, 0.18))
+		draw_rect(Rect2(0.0, -2.0, 5.0, 4.0), Color(0.24, 0.78, 0.32))
+		draw_circle(Vector2(6.0, 0.0), 2.4, Color(0.40, 0.95, 0.45, 0.85))
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(-5.0, -2.0), Vector2(-8.0, -4.5), Vector2(-3.0, -1.0),
 	]), team_col)

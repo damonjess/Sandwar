@@ -20,9 +20,13 @@ var turn_rate := 18.0
 var source_team := 0
 var age := 0.0
 var done := false
+## Optional blast for super-heavy cannons (the Devastator). Zero for rifles.
+var splash_radius := 0.0
+var splash_fraction := 0.0
 
 func setup(g, from_team: int, victim, pos: Vector2, dir: Vector2, dmg: float,
-		weapon_id: String, style_id: String, spd: float, turn: float) -> void:
+		weapon_id: String, style_id: String, spd: float, turn: float,
+		splash := 0.0, splash_share := 0.0) -> void:
 	game = g
 	source_team = from_team
 	target = victim
@@ -37,6 +41,8 @@ func setup(g, from_team: int, victim, pos: Vector2, dir: Vector2, dmg: float,
 	weapon = weapon_id
 	style = style_id
 	turn_rate = maxf(turn, 0.1)
+	splash_radius = splash
+	splash_fraction = splash_share
 	z_index = 16
 
 func _process(delta: float) -> void:
@@ -69,8 +75,17 @@ func _impact() -> void:
 		if target.has_method("damage_class"):
 			target_class = target.damage_class()
 		target.take_damage(damage * GameDefs.damage_multiplier(weapon, target_class))
+	if splash_radius > 0.0:
+		for u in game.units:
+			if u == target or not is_instance_valid(u) or u.dead or u.team == source_team:
+				continue
+			_splash_at(u, hit_pos, u.radius)
+		for b in game.buildings:
+			if b == target or not is_instance_valid(b) or b.dead or b.team == source_team:
+				continue
+			_splash_at(b, hit_pos, b.size_px * 0.5)
 	if game.fx != null:
-		game.fx.impact(hit_pos, style, 1.0)
+		game.fx.impact(hit_pos, style, 1.6 if splash_radius > 0.0 else 1.0)
 	if style == "cannon" and game.scorch_layer != null:
 		game.scorch_layer.add(hit_pos, 11.0)
 	# Shells get the small impact explosion; bullet puffs use a dry, quiet tick.
@@ -79,6 +94,18 @@ func _impact() -> void:
 	else:
 		game.play_sfx("rifle", hit_pos, -15.0)
 	queue_free()
+
+func _splash_at(victim, hit_pos: Vector2, body_radius: float) -> void:
+	var reach := splash_radius + body_radius
+	var d := hit_pos.distance_to(victim.global_position)
+	if d > reach:
+		return
+	var falloff := clampf(1.0 - d / maxf(reach, 1.0), 0.0, 1.0)
+	var target_class := "building"
+	if victim.has_method("damage_class"):
+		target_class = victim.damage_class()
+	victim.take_damage(damage * splash_fraction * (0.45 + 0.55 * falloff)
+		* GameDefs.damage_multiplier(weapon, target_class))
 
 func _draw() -> void:
 	var ang := velocity.angle()

@@ -32,6 +32,20 @@ var last_ms: Dictionary = {}
 var ambience: AudioStreamPlayer
 var rng := RandomNumberGenerator.new()
 
+func _exit_tree() -> void:
+	# Stop the looping wind bed and pooled voices before the scene tree goes
+	# away; otherwise the audio server can report an orphaned playback at quit.
+	if ambience != null:
+		ambience.stop()
+		ambience.stream = null
+	for p in voices:
+		p.stop()
+		p.stream = null
+	for p in ui_voices:
+		p.stop()
+		p.stream = null
+	streams.clear()
+
 func _ready() -> void:
 	rng.randomize()
 	for i in VOICES:

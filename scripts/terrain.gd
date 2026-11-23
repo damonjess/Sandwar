@@ -33,6 +33,15 @@ var rock_tint: FastNoiseLite
 ## buildings, so the slab seams and the structure foundations share a palette.
 const TEX_SAND := "res://assets/sprites/d2/terrain_sand.png"
 const TEX_ROCK := "res://assets/sprites/d2/terrain_rock.png"
+## New seamless bases remove the old 40 px tint cells in the source sheets.
+## The original files are kept untouched as fallbacks.
+const TEX_SAND_CLEAN := "res://assets/sprites/d2/terrain_sand_clean.png"
+const TEX_ROCK_CLEAN := "res://assets/sprites/d2/terrain_rock_clean.png"
+## Soft-edged, deterministic detail variants composited over the continuous
+## sheets. They share a feathered alpha=0 border, so no variant can create a
+## tile seam or a 40 px square grid.
+const TEX_SAND_VARIANTS := "res://assets/sprites/d2/terrain_sand_variants.png"
+const TEX_ROCK_VARIANTS := "res://assets/sprites/d2/terrain_rock_variants.png"
 const TEX_CONCRETE := "res://assets/sprites/buildings/slab_pavement.png"
 const TEX_SPICE := "res://assets/sprites/d2/terrain_spice.png"
 const TEX_CLIFF := "res://assets/sprites/d2/terrain_cliff.png"
@@ -43,15 +52,24 @@ const CLIFF_W := 8
 
 var sand_tex: Texture2D
 var rock_tex: Texture2D
+var sand_clean_tex: Texture2D
+var rock_clean_tex: Texture2D
+var sand_variants: Texture2D
+var rock_variants: Texture2D
 var concrete_tex: Texture2D
 var spice_tex: Texture2D
 var cliff_tex: Texture2D
+var variant_seed := 0
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	sand_tex = _load_tex(TEX_SAND)
 	rock_tex = _load_tex(TEX_ROCK)
+	sand_clean_tex = _load_tex(TEX_SAND_CLEAN)
+	rock_clean_tex = _load_tex(TEX_ROCK_CLEAN)
+	sand_variants = _load_tex(TEX_SAND_VARIANTS)
+	rock_variants = _load_tex(TEX_ROCK_VARIANTS)
 	concrete_tex = _load_tex(TEX_CONCRETE)
 	spice_tex = _load_tex(TEX_SPICE)
 	cliff_tex = _load_tex(TEX_CLIFF)
@@ -60,6 +78,7 @@ static func _load_tex(path: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
 
 func generate(seed_value: int) -> void:
+	variant_seed = seed_value
 	var total := GameDefs.MAP * GameDefs.MAP
 	types.resize(total)
 	types.fill(GameDefs.SAND)
@@ -104,13 +123,16 @@ func generate(seed_value: int) -> void:
 				spice[i] = amount
 				spice_max[i] = amount
 
-	# Guaranteed rock plateaus under both starting bases.
-	_force_rock(Vector2i(17, 41), 10)
-	_force_rock(Vector2i(42, 14), 11)
+	# Guaranteed rock plateaus under both starting bases, scaled with the
+	# mission's battlefield so 44, 52 and 60 tile maps all have fair ground.
+	var player_base := Vector2i(int(round(float(GameDefs.MAP) * 0.30)), int(round(float(GameDefs.MAP) * 0.73)))
+	var enemy_base := Vector2i(int(round(float(GameDefs.MAP) * 0.75)), int(round(float(GameDefs.MAP) * 0.27)))
+	_force_rock(player_base, maxi(8, int(round(float(GameDefs.MAP) * 0.18))))
+	_force_rock(enemy_base, maxi(8, int(round(float(GameDefs.MAP) * 0.19))))
 	# Spice fields close enough to reach in the opening minute.
-	_add_spice(Vector2i(32, 47), 5)
-	_add_spice(Vector2i(26, 30), 6)
-	_add_spice(Vector2i(32, 22), 6)
+	_add_spice(Vector2i(int(round(float(GameDefs.MAP) * 0.58)), int(round(float(GameDefs.MAP) * 0.84))), maxi(4, int(round(float(GameDefs.MAP) * 0.09))))
+	_add_spice(Vector2i(int(round(float(GameDefs.MAP) * 0.47)), int(round(float(GameDefs.MAP) * 0.54))), maxi(5, int(round(float(GameDefs.MAP) * 0.11))))
+	_add_spice(Vector2i(int(round(float(GameDefs.MAP) * 0.58)), int(round(float(GameDefs.MAP) * 0.39))), maxi(5, int(round(float(GameDefs.MAP) * 0.11))))
 	queue_redraw()
 
 func _force_rock(center: Vector2i, radius: int) -> void:
@@ -284,6 +306,27 @@ func cliff_mask(x: int, y: int) -> int:
 		mask |= CLIFF_W
 	return mask
 
+## Stable variant choice from the map seed and grid coordinate. No RNG state
+## is involved, so the same tile always gets the same variant across redraws.
+func _variant_index(x: int, y: int, count: int) -> int:
+	if count <= 1:
+		return 0
+	var h := _hash(x, y) ^ (variant_seed * 2654435761)
+	h = absi(h ^ (h >> 13))
+	return posmod(h, count)
+
+
+func _draw_variant(tex: Texture2D, variant: int, pos: Vector2, tile_size: Vector2) -> void:
+	if tex == null:
+		return
+	var count := maxi(tex.get_width() / GameDefs.TILE, 1)
+	if count <= 0:
+		return
+	var v := clampi(variant, 0, count - 1)
+	draw_texture_rect_region(tex, Rect2(pos, tile_size),
+		Rect2(Vector2(float(v * GameDefs.TILE), 0.0), tile_size))
+
+
 func _draw() -> void:
 	if sand_tint == null:
 		return
@@ -292,9 +335,11 @@ func _draw() -> void:
 	var tile_size := Vector2(t, t)
 
 	# One continuous seamless desert sheet behind the whole map; the plateau
-	# and slab passes sit on top of it.
-	if sand_tex != null:
-		draw_texture_rect(sand_tex, Rect2(Vector2.ZERO, Vector2(GameDefs.WORLD, GameDefs.WORLD)), true)
+	# and slab passes sit on top of it. Prefer the clean generated sheet when
+	# present: it has no legacy 40 px tint cells or vertical source seam.
+	var sand_base := sand_clean_tex if sand_clean_tex != null else sand_tex
+	if sand_base != null:
+		draw_texture_rect(sand_base, Rect2(Vector2.ZERO, Vector2(GameDefs.WORLD, GameDefs.WORLD)), true)
 
 	for y in m:
 		for x in m:
@@ -312,20 +357,42 @@ func _draw() -> void:
 					draw_rect(Rect2(pos, tile_size), SLAB)
 					draw_rect(Rect2(pos + Vector2(2, 2), tile_size - Vector2(4, 4)), SLAB_INNER)
 			elif types[i] == GameDefs.ROCK:
-				if rock_tex != null:
+				var plateau_tex := rock_clean_tex if rock_clean_tex != null else rock_tex
+				if plateau_tex != null:
 					# Sample the seamless sheet in world space, so adjacent plateau
 					# tiles are continuous instead of a mosaic of 40 px stamps.
-					var rx := (x * GameDefs.TILE) % rock_tex.get_width()
-					var ry := (y * GameDefs.TILE) % rock_tex.get_height()
-					draw_texture_rect_region(rock_tex, Rect2(pos, tile_size),
+					var rx := (x * GameDefs.TILE) % plateau_tex.get_width()
+					var ry := (y * GameDefs.TILE) % plateau_tex.get_height()
+					draw_texture_rect_region(plateau_tex, Rect2(pos, tile_size),
 						Rect2(Vector2(float(rx), float(ry)), tile_size))
 				else:
 					var rn2 := rock_tint.get_noise_2d(float(x), float(y))
 					draw_rect(Rect2(pos, tile_size), ROCK_LIGHT.lerp(ROCK_DARK, clampf(0.5 + rn2 * 0.7, 0.0, 1.0)))
+				if rock_variants != null:
+					_draw_variant(rock_variants, _variant_index(x, y, rock_variants.get_width() / GameDefs.TILE), pos, tile_size)
 			else:
 				if sand_tex == null:
 					var sn2 := sand_tint.get_noise_2d(float(x), float(y))
 					draw_rect(Rect2(pos, tile_size), SAND_LIGHT.lerp(SAND_DARK, clampf(0.5 + sn2 * 0.6, 0.0, 1.0)))
+				if sand_variants != null:
+					_draw_variant(sand_variants, _variant_index(x, y, sand_variants.get_width() / GameDefs.TILE), pos, tile_size)
+
+	# A warm 1 px dust fringe on the outer concrete lip softens the hard black
+	# outline where a pad meets raw rock or sand. This is purely decorative.
+	for y in m:
+		for x in m:
+			if concrete[y * m + x] == 0:
+				continue
+			var pos := Vector2(float(x), float(y)) * t
+			var fringe := Color(0.48, 0.28, 0.15, 0.20)
+			if x == 0 or concrete[y * m + x - 1] == 0:
+				draw_rect(Rect2(pos, Vector2(1.5, t)), fringe)
+			if x == m - 1 or concrete[y * m + x + 1] == 0:
+				draw_rect(Rect2(pos + Vector2(t - 1.5, 0.0), Vector2(1.5, t)), fringe)
+			if y == 0 or concrete[(y - 1) * m + x] == 0:
+				draw_rect(Rect2(pos, Vector2(t, 1.5)), fringe)
+			if y == m - 1 or concrete[(y + 1) * m + x] == 0:
+				draw_rect(Rect2(pos + Vector2(0.0, t - 1.5), Vector2(t, 1.5)), fringe)
 
 	# Plateau edges: one jagged 16-mask cliff tile per exposed mesa lip. The
 	# atlas supplies the south rock face, shaded east wall and sunlit N/W rim;

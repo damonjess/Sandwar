@@ -4,7 +4,11 @@ extends Node2D
 ## Spice economy, concrete bases, walls, unit production, combat and an AI.
 
 const TILE := GameDefs.TILE
-const MAP := GameDefs.MAP
+## Read live from GameDefs: missions resize the battlefield before this scene
+## is instantiated, and quick skirmish resets it to 56.
+var MAP: int:
+	get:
+		return GameDefs.MAP
 
 var terrain: Terrain
 var shroud: Shroud
@@ -24,6 +28,19 @@ var harvested := 0
 var units_built := 0
 var elapsed := 0.0
 var game_over := false
+
+## Mission attachment. Empty for Quick Skirmish.
+var mission: Dictionary = {}
+var campaign_mission := false
+var objective: Dictionary = {}
+var enemy_units_destroyed := 0
+var enemy_buildings_destroyed := 0
+var player_units_lost := 0
+var player_buildings_lost := 0
+var ai_army_cap := 16
+var ai_think_base := 2.0
+var ai_aggression := 1.0
+var ai_production := 1.0
 
 var selected: Array = []
 var selected_build = null
@@ -69,11 +86,38 @@ var vision_timer := 0.0
 
 func _ready() -> void:
 	rng.randomize()
+	# Campaign missions freeze their House, tech and battlefield in
+	# CampaignState.begin_mission. Skirmish rolls a fresh non-mirror opponent.
+	var state = GameDefs.campaign
+	if state != null:
+		state.call("prepare_battle")
+		var active = state.get("active_mission")
+		if typeof(active) == TYPE_DICTIONARY:
+			mission = active
+	campaign_mission = not mission.is_empty()
+
+	var map_size := 56
+	var map_seed := rng.randi()
+	if campaign_mission:
+		map_size = int(mission.get("map_size", 56))
+		map_seed = int(mission.get("map_seed", map_seed))
+		objective = mission.get("objective", {}).duplicate(true)
+		credits = [int(mission.get("starting_credits", 2200)), 1500]
+		var ai: Dictionary = mission.get("ai", {})
+		credits[1] = int(ai.get("start_credits", 1500))
+		ai_army_cap = int(ai.get("army_cap", AI_MAX_ARMY))
+		ai_think_base = float(ai.get("think", AI_THINK))
+		ai_think = ai_think_base
+		ai_attack_timer = float(ai.get("attack_delay", 30.0))
+		ai_aggression = float(ai.get("aggression", 1.0))
+		ai_production = float(ai.get("production", 1.0))
+	GameDefs.set_map_size(map_size)
+	rng.seed = map_seed
 
 	terrain = Terrain.new()
 	terrain.z_index = -10
 	add_child(terrain)
-	terrain.generate(rng.randi())
+	terrain.generate(map_seed)
 
 	shroud = Shroud.new()
 	add_child(shroud)
@@ -113,7 +157,10 @@ func _ready() -> void:
 	hud.setup(self)
 
 	hint = "Tap a unit, then tap the ground.  Build from the side panel."
-	_say("Spice must flow. Destroy the enemy Construction Yard.")
+	if campaign_mission:
+		_say("MISSION %d · %s — %s" % [int(mission.get("tier", 1)), String(mission.get("region_name", "Arrakis")), String(mission.get("objective_text", ""))])
+	else:
+		_say("Spice must flow. Destroy the enemy Construction Yard.")
 	_update_vision()
 	_apply_fog()
 
@@ -137,7 +184,16 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- world setup
 
+func _base_anchor(team: int) -> Vector2i:
+	var f := Vector2(0.22, 0.68) if team == 0 else Vector2(0.68, 0.18)
+	return Vector2i(int(round(float(MAP) * f.x)), int(round(float(MAP) * f.y)))
+
 func _build_starting_bases() -> void:
+	if campaign_mission:
+		_build_mission_bases()
+		return
+	var player_scout := Factions.scout(GameDefs.house_for_team(0))
+	var enemy_scout := Factions.scout(GameDefs.house_for_team(1))
 	add_building("cy", 0, Vector2i(12, 38))
 	add_building("refinery", 0, Vector2i(17, 38))
 	add_building("barracks", 0, Vector2i(12, 43))
@@ -145,7 +201,7 @@ func _build_starting_bases() -> void:
 	spawn_unit("harvester", 0, Vector2(21.0, 44.0) * float(TILE))
 	spawn_unit("infantry", 0, Vector2(16.0, 44.0) * float(TILE))
 	spawn_unit("infantry", 0, Vector2(16.8, 44.9) * float(TILE))
-	spawn_unit("trike", 0, Vector2(18.4, 45.6) * float(TILE))
+	spawn_unit(player_scout, 0, Vector2(18.4, 45.6) * float(TILE))
 
 	add_building("cy", 1, Vector2i(38, 10))
 	add_building("refinery", 1, Vector2i(43, 10))
@@ -156,9 +212,29 @@ func _build_starting_bases() -> void:
 	spawn_unit("harvester", 1, Vector2(41.0, 16.0) * float(TILE))
 	spawn_unit("infantry", 1, Vector2(40.0, 18.0) * float(TILE))
 	spawn_unit("infantry", 1, Vector2(40.7, 18.7) * float(TILE))
-	spawn_unit("trike", 1, Vector2(39.0, 19.2) * float(TILE))
+	spawn_unit(enemy_scout, 1, Vector2(39.0, 19.2) * float(TILE))
 
-func add_building(id: String, team: int, tile: Vector2i):
+func _build_mission_bases() -> void:
+	var player_start: Dictionary = mission.get("player_start", {})
+	var enemy_start: Dictionary = mission.get("enemy_start", {})
+	var pa := _base_anchor(0)
+	var ea := _base_anchor(1)
+	for spec in player_start.get("buildings", []):
+		var tile := pa + Vector2i(int(spec[1]), int(spec[2]))
+		add_building(String(spec[0]), 0, tile, true)
+	for spec in player_start.get("units", []):
+		var id := CampaignMissions.house_role(GameDefs.house_for_team(0), String(spec[0]))
+		var tile := pa + Vector2i(int(spec[1]), int(spec[2]))
+		spawn_unit(id, 0, terrain.tile_center(tile) + Vector2(rng.randf_range(-7.0, 7.0), rng.randf_range(-7.0, 7.0)))
+	for spec in enemy_start.get("buildings", []):
+		var tile := ea + Vector2i(int(spec[1]), int(spec[2]))
+		add_building(String(spec[0]), 1, tile, true)
+	for spec in enemy_start.get("units", []):
+		var id := CampaignMissions.house_role(GameDefs.house_for_team(1), String(spec[0]))
+		var tile := ea + Vector2i(int(spec[1]), int(spec[2]))
+		spawn_unit(id, 1, terrain.tile_center(tile) + Vector2(rng.randf_range(-7.0, 7.0), rng.randf_range(-7.0, 7.0)))
+
+func add_building(id: String, team: int, tile: Vector2i, starting := false):
 	var span := GameDefs.size_of(id)
 	var paved := _concrete_ratio(tile, span)
 	var b := Building.new()
@@ -169,8 +245,9 @@ func add_building(id: String, team: int, tile: Vector2i):
 	terrain.pave_span(tile, span)
 	if id == "wall":
 		_refresh_wall_neighbours(tile, team)
-	if id == "windtrap" and paved < 1.0:
+	if id == "windtrap" and paved < 1.0 and not starting:
 		# Built off its slab the trap starts damaged, as it does in Dune 2000.
+		# Mission maps are allowed to begin with a healthy trap on raw rock.
 		b.hp = b.max_hp * 0.6
 	_buildings_changed()
 	return b
@@ -297,6 +374,10 @@ func play_ui_sfx(id: String, db := 0.0, pitch := 1.0) -> void:
 		audio.call("play_ui", id, db, pitch)
 
 func on_unit_destroyed(u) -> void:
+	if u.team == 1:
+		enemy_units_destroyed += 1
+	else:
+		player_units_lost += 1
 	units.erase(u)
 	selected.erase(u)
 	if fx != null:
@@ -304,6 +385,10 @@ func on_unit_destroyed(u) -> void:
 	play_sfx("explosion_medium", u.global_position, -1.0)
 
 func on_building_destroyed(b) -> void:
+	if b.team == 1:
+		enemy_buildings_destroyed += 1
+	else:
+		player_buildings_lost += 1
 	var was_wall: bool = b.type_id == "wall"
 	var wall_tile: Vector2i = b.tile_origin()
 	var wall_team: int = b.team
@@ -346,6 +431,10 @@ func nearest_enemy(pos: Vector2, team: int, radius: float):
 		if fogged and not terrain.is_visible_at(u.global_position):
 			continue
 		var d: float = u.global_position.distance_to(pos)
+		# Fremen stealth: beyond their detection radius they cannot be picked
+		# as an automatic target. Deliberate attack orders still work.
+		if u.stealth > 0.0 and d > u.stealth:
+			continue
 		if d < best_d:
 			best_d = d
 			best = u
@@ -410,12 +499,16 @@ func _has_building(team: int, id: String) -> bool:
 
 func _find_producer(unit_id: String):
 	var producer_id := String(GameDefs.UNITS[unit_id]["producer"])
-	return nearest_building(Vector2(17.0, 41.0) * float(TILE), 0, producer_id)
+	return nearest_building(terrain.tile_center(_base_anchor(0)), 0, producer_id)
 
 # ---------------------------------------------------------------- production
 
 func can_build(kind: String, id: String) -> bool:
 	if game_over:
+		return false
+	# Tech pacing is part of the mission contract: the sidebar never even
+	# offers a locked unit, and a stale tap cannot queue one either.
+	if not GameDefs.tech_available(kind, id):
 		return false
 	if kind == "structure":
 		var def: Dictionary = GameDefs.STRUCTURES[id]
@@ -607,12 +700,15 @@ func has_power(team_id: int) -> bool:
 
 ## Full power builds at full speed; a starved base crawls, as in Dune 2000.
 func production_rate(team_id: int) -> float:
-	return 1.0 if has_power(team_id) else 0.55
+	var rate := 1.0 if has_power(team_id) else 0.55
+	if team_id == 1:
+		rate *= ai_production
+	return rate
 
 func _complete_unit(item: Dictionary) -> void:
 	var id := String(item["id"])
 	var producer = _find_producer(id)
-	var origin := Vector2(17.0, 41.0) * float(TILE)
+	var origin := terrain.tile_center(_base_anchor(0))
 	if producer != null:
 		origin = producer.global_position + Vector2(0.0, producer.size_px * 0.5 + 30.0)
 		if producer.team == 0 and producer.has_rally:
@@ -1300,7 +1396,7 @@ func _tick_ai(delta: float) -> void:
 	ai_think -= delta
 	if ai_think > 0.0:
 		return
-	ai_think = AI_THINK
+	ai_think = ai_think_base
 	_ai_decide()
 	_ai_maybe_attack()
 
@@ -1332,28 +1428,39 @@ func _ai_decide() -> void:
 	if ai_wave >= 1 and _count_buildings(1, "windtrap") + _ai_queued("windtrap") < 1:
 		if _ai_buy_structure("windtrap"):
 			return
-	if _team_combat_units(1).size() + ai_queue.size() >= AI_MAX_ARMY:
+	if _team_combat_units(1).size() + ai_queue.size() >= ai_army_cap:
 		return
-	# Keep a mixed army: the type furthest behind its share of the force goes
-	# next, so rocketeers, quads and (from the second wave) tanks all show up.
-	var roster := ["infantry", "rocket", "trike", "quad"]
-	# Tanks only once the economy can carry them: otherwise the treasury never
-	# grows past the price because every cycle buys another soldier.
-	if ai_wave >= 2 and _count_units(1, "harvester") >= 2:
-		roster.append("tank")
-	var pick := "infantry"
+	# Keep a mixed army drawn from the enemy House's own roster. The unit
+	# furthest behind its share of the force goes next, so the AI fields its
+	# unique units instead of a generic mirror of the player's army.
+	var house := GameDefs.house_for_team(1)
+	var roster: Array = []
+	for id in GameDefs.unit_roster(house):
+		if id == "harvester":
+			continue
+		if not _has_building(1, String(GameDefs.UNITS[id]["producer"])):
+			continue
+		# Expensive uniques wait until the economy and the first wave are up.
+		if int(GameDefs.UNITS[id]["cost"]) >= 700 and ai_wave < 2:
+			continue
+		roster.append(id)
+	if roster.is_empty():
+		roster = ["infantry", "rocket"]
+	var pick := String(roster[0])
 	var pick_ratio := 1.0e9
 	for id in roster:
-		var share := 1.0 if id == "tank" else 2.0
+		var share := 2.1
+		var cost := int(GameDefs.UNITS[id]["cost"])
+		if id == "infantry" or id == "rocket":
+			share = 2.4
+		elif cost >= 700:
+			share = 0.75
+		elif cost >= 500:
+			share = 1.25
 		var ratio := float(_count_units(1, id) + _ai_queued(id)) / share
 		if ratio < pick_ratio:
 			pick_ratio = ratio
 			pick = id
-	if pick == "tank":
-		if credits[1] < int(GameDefs.UNITS["tank"]["cost"]):
-			return
-		_ai_buy_unit("tank")
-		return
 	if not _ai_buy_unit(pick):
 		for id in ["infantry", "rocket"]:
 			if _ai_buy_unit(id):
@@ -1412,7 +1519,7 @@ func _tick_ai_queue(delta: float) -> void:
 		play_ui_sfx("build_place", -8.0)
 		return
 	var producer = _building_of(1, String(GameDefs.UNITS[id]["producer"]))
-	var origin := Vector2(38.0, 12.0) * float(TILE)
+	var origin := terrain.tile_center(_base_anchor(1))
 	if producer != null:
 		origin = producer.global_position + Vector2(0.0, producer.size_px * 0.5 + 26.0)
 	spawn_unit(id, 1, origin + Vector2(rng.randf_range(-18.0, 18.0), rng.randf_range(0.0, 14.0)))
@@ -1456,7 +1563,8 @@ func _ai_maybe_attack() -> void:
 	if ai_attack_timer > 0.0:
 		return
 	var army := _team_combat_units(1)
-	if army.size() < 4 + ai_wave:
+	var need := maxi(3, int(round(float(4 + ai_wave) * ai_aggression)))
+	if army.size() < need:
 		return
 	var target = _ai_pick_target()
 	if target == null:
@@ -1464,7 +1572,7 @@ func _ai_maybe_attack() -> void:
 	for u in army:
 		u.order_attack(target)
 	ai_wave += 1
-	ai_attack_timer = maxf(30.0, 55.0 - float(ai_wave) * 3.0)
+	ai_attack_timer = maxf(22.0, (55.0 - float(ai_wave) * 3.0) / maxf(ai_aggression, 0.5))
 	_ai_log("wave %d: %d units -> %s" % [ai_wave, army.size(), String(target.type_id) if target.get("type_id") != null else "unit"])
 	_say("Enemy attack wave %d incoming." % ai_wave)
 	if sfx != null:
@@ -1473,7 +1581,7 @@ func _ai_maybe_attack() -> void:
 ## Hit the economy first: harvesters, then whatever it can reach.
 func _ai_pick_target():
 	var base = _building_of(1, "cy")
-	var from := Vector2(38.0, 12.0) * float(TILE)
+	var from := terrain.tile_center(_base_anchor(1))
 	if base != null:
 		from = base.global_position
 	# Early waves hit buildings; raiding the harvesters comes once you have had
@@ -1534,28 +1642,143 @@ func _ai_queued(id: String) -> int:
 
 # ------------------------------------------------------------------ victory
 
+func _team_has_anything(team: int) -> bool:
+	for u in units:
+		if is_instance_valid(u) and not u.dead and u.team == team:
+			return true
+	for b in buildings:
+		if is_instance_valid(b) and not b.dead and b.team == team:
+			return true
+	return false
+
+func _enemy_units() -> int:
+	var n := 0
+	for u in units:
+		if is_instance_valid(u) and not u.dead and u.team == 1:
+			n += 1
+	return n
+
+func _enemy_structures() -> int:
+	var n := 0
+	for b in buildings:
+		if is_instance_valid(b) and not b.dead and b.team == 1:
+			n += 1
+	return n
+
+func _objective_met() -> bool:
+	if objective.is_empty():
+		return not _has_building(1, "cy")
+	match String(objective.get("type", "")):
+		"harvest":
+			return harvested >= int(objective.get("credits", 0))
+		"harvest_or_clear":
+			return harvested >= int(objective.get("credits", 0)) \
+				or enemy_units_destroyed >= int(objective.get("kills", 4)) \
+				or _enemy_units() == 0
+		"destroy_units":
+			return _enemy_units() == 0
+		"destroy_structures":
+			return _enemy_structures() == 0
+		"destroy_all", "stronghold":
+			return _enemy_units() == 0 and _enemy_structures() == 0
+	return not _has_building(1, "cy")
+
 func _check_victory() -> void:
 	if game_over:
+		return
+	if campaign_mission:
+		if not _team_has_anything(0):
+			_finish(false)
+			return
+		if _objective_met():
+			_finish(true)
 		return
 	if not _has_building(0, "cy"):
 		_finish(false)
 	elif not _has_building(1, "cy"):
 		_finish(true)
 
+func _stats() -> Dictionary:
+	return {
+		"time": elapsed,
+		"units_destroyed": enemy_units_destroyed,
+		"structures_destroyed": enemy_buildings_destroyed,
+		"spice": harvested,
+		"units_built": units_built,
+		"units_lost": player_units_lost,
+	}
+
 func _finish(win: bool) -> void:
 	if game_over:
 		return
 	game_over = true
-	var body := "You held the desert.\nUnits built %d  -  Spice delivered %d  -  Time %d:%02d" % [units_built, harvested, int(elapsed) / 60, int(elapsed) % 60]
-	if not win:
-		body = "Your Construction Yard has fallen.\nUnits built %d  -  Spice delivered %d  -  Time %d:%02d" % [units_built, harvested, int(elapsed) / 60, int(elapsed) % 60]
+	var stats := _stats()
+	var time_text := "%d:%02d" % [int(elapsed) / 60, int(elapsed) % 60]
+	var body := "Time %s    Units destroyed %d    Spice harvested %d" % [time_text, enemy_units_destroyed, harvested]
+	var buttons: Array = []
+	var title := "VICTORY" if win else "DEFEAT"
+	if campaign_mission:
+		title = "MISSION VICTORY" if win else "MISSION DEFEAT"
+		var state = GameDefs.campaign
+		if state != null:
+			state.call("record_mission_result", win, stats)
+		if win:
+			body += "\n%s is ours. The next front is unlocked." % String(mission.get("region_name", "The province"))
+			buttons = [{"text": "CONTINUE TO MAP", "method": "continue_to_map", "primary": true}]
+		else:
+			body += "\nThe battle is lost. The province remains in enemy hands."
+			buttons = [
+				{"text": "RETRY MISSION", "method": "retry_mission", "primary": true},
+				{"text": "BACK TO MAP", "method": "back_to_map"},
+			]
+	else:
+		if win:
+			body = "You held the desert.\nTime %s    Units built %d    Spice delivered %d" % [time_text, units_built, harvested]
+		else:
+			body = "Your Construction Yard has fallen.\nTime %s    Units built %d    Spice delivered %d" % [time_text, units_built, harvested]
+		buttons = [
+			{"text": "FIGHT AGAIN", "method": "restart", "primary": true},
+			{"text": "MAIN MENU", "method": "main_menu"},
+		]
 	if hud != null:
-		hud.show_result(win, body)
+		hud.show_result(win, body, buttons, title)
 	if sfx != null:
 		sfx.ui("alarm", -2.0, 1.3 if win else 0.7)
 
+func debug_win_mission() -> void:
+	if game_over:
+		return
+	_finish(true)
+
+func _stop_battle_audio() -> void:
+	if audio != null and audio.has_method("stop_all"):
+		audio.call("stop_all")
+
+func continue_to_map() -> void:
+	_stop_battle_audio()
+	var state = GameDefs.campaign
+	if state != null:
+		state.call("return_to_map")
+	get_tree().change_scene_to_file("res://scenes/campaign_map.tscn")
+
+func back_to_map() -> void:
+	continue_to_map()
+
+func retry_mission() -> void:
+	get_tree().reload_current_scene()
+
+func main_menu() -> void:
+	_stop_battle_audio()
+	var state = GameDefs.campaign
+	if state != null:
+		state.call("cancel_battle")
+	get_tree().change_scene_to_file("res://scenes/house_select.tscn")
+
 func restart() -> void:
 	get_tree().reload_current_scene()
+
+func _exit_tree() -> void:
+	_stop_battle_audio()
 
 # ------------------------------------------------------------------ messages
 
@@ -1643,11 +1866,14 @@ func _draw() -> void:
 			continue
 		var p: Vector2 = b.rally_point
 		var pulse := 0.68 + 0.32 * absf(sin(Time.get_ticks_msec() * 0.004))
-		draw_dashed_line(b.global_position, p, Color(0.30, 0.62, 1.0, 0.34), 1.0, 6.0, true, true)
+		var house_col := GameDefs.team_color(b.team)
+		var flag_col := Color(house_col.r, house_col.g, house_col.b, 1.0)
+		var line_col := Color(house_col.r, house_col.g, house_col.b, 0.38)
+		draw_dashed_line(b.global_position, p, line_col, 1.0, 6.0, true, true)
 		draw_circle(p, 13.0, Color(0.06, 0.09, 0.13, 0.60))
-		draw_arc(p, 11.0, 0.0, TAU, 24, Color(0.38, 0.76, 1.0, pulse), 2.0)
-		draw_line(p, p + Vector2(0.0, -20.0), Color(0.72, 0.88, 1.0, 0.95), 2.0)
-		draw_colored_polygon(PackedVector2Array([p + Vector2(0.0, -20.0), p + Vector2(13.0, -15.0), p + Vector2(0.0, -9.0)]), Color(0.25, 0.58, 1.0, 0.95))
+		draw_arc(p, 11.0, 0.0, TAU, 24, Color(flag_col.r, flag_col.g, flag_col.b, pulse), 2.0)
+		draw_line(p, p + Vector2(0.0, -20.0), Color(0.86, 0.90, 0.96, 0.95), 2.0)
+		draw_colored_polygon(PackedVector2Array([p + Vector2(0.0, -20.0), p + Vector2(13.0, -15.0), p + Vector2(0.0, -9.0)]), flag_col)
 	if rally_mode and rally_building != null and is_instance_valid(rally_building):
 		var box: Rect2 = rally_building.world_rect().grow(4.0)
 		var pulse := 0.55 + 0.45 * absf(sin(Time.get_ticks_msec() * 0.006))

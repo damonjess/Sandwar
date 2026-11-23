@@ -38,11 +38,6 @@ const ART_TOPS := {
 }
 
 static var _heads: Dictionary = {}
-
-## Atreides and Harkonnen come from GameDefs so buildings match units and HUD;
-## Ordos is ready for a third house.
-const ORDOS := Color(0.16, 0.80, 0.46)
-
 static var _sheets: Dictionary = {}
 static var _icons: Dictionary = {}
 static var _shader: Shader
@@ -83,9 +78,7 @@ static func turret_muzzle_distance(id: String) -> float:
 	return float(TURRET_MUZZLE_DISTANCE.get(id, 0.0))
 
 static func faction_color(team: int) -> Color:
-	if team == 2:
-		return ORDOS
-	return GameDefs.TEAM_COLORS[clampi(team, 0, GameDefs.TEAM_COLORS.size() - 1)]
+	return GameDefs.team_color(team)
 
 ## One material per view (damage tint is per building). The HUD shares one.
 static func material(team: int) -> ShaderMaterial:
@@ -97,6 +90,11 @@ static func material(team: int) -> ShaderMaterial:
 	return mat
 
 static func hud_material(team: int) -> ShaderMaterial:
-	if not _hud_mats.has(team):
-		_hud_mats[team] = material(team)
-	return _hud_mats[team]
+	# A campaign can switch Houses without restarting the process, so key by
+	# the live House rather than only the team slot.
+	var key := "%d:%s" % [team, GameDefs.house_for_team(team)]
+	if not _hud_mats.has(key):
+		var mat := material(team)
+		mat.set_shader_parameter("icon_blue_trim", 1.0)
+		_hud_mats[key] = mat
+	return _hud_mats[key]
