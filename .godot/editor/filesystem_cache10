@@ -269,7 +269,7 @@ wall_art.gd::GDScript::3740082466521374597::1795385565::0::1::::WallArt<>RefCoun
 wall_view.gd::GDScript::5184828342747331543::1795385270::0::1::::WallView<>Node2D<><>0<>1<><>::
 ::res://shaders/::1795350760
 faction_remap.gdshader::Shader::5651950043731996096::1795398889::0::1::::<><><>0<>0<><>::
-::res://tools/::1795400617
+::res://tools/::1795400770
 bake_buildings_3d.gd::GDScript::4664374126634244774::1795387868::0::1::::<>Node<><>0<>0<><>::
 bake_buildings_3d.tscn::PackedScene::-1::1795358019::0::1::::<><><>0<>0<><>::
 bake_units_3d.gd::GDScript::7527020203973437869::1795395289::0::1::::<>Node<><>0<>0<><>::

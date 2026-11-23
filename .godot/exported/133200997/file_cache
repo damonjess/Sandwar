@@ -1,6 +1,9 @@
-res://construction_yard.tscn::9547edbcee1526bd39c95af3b481b171::1795363565::res://.godot/exported/133200997/export-d45aa4433158c3d83de07093038bc1f9-construction_yard.scn
+res://construction_yard.tscn::4b1853998e959ce7b6459a91962d695d::1795387161::res://.godot/exported/133200997/export-d45aa4433158c3d83de07093038bc1f9-construction_yard.scn
 res://main.tscn::9b9b657e796798ac7ee08ff88a60661b::1795098630::res://.godot/exported/133200997/export-3070c538c03ee49b7677ff960a3f5195-main.scn
-res://refinery.tscn::f545e7e8a8260af1c8a17ddfc2f433df::1795363988::res://.godot/exported/133200997/export-5e0e174600365017c21c2e6aae1afeca-refinery.scn
-res://wind_trap.tscn::4e63d5d19251c38cb13dbdda91f11a13::1795364476::res://.godot/exported/133200997/export-7e74615c071f38fe77659f6bf502441b-wind_trap.scn
+res://refinery.tscn::ac7e436f442687795eb390a11384b004::1795387161::res://.godot/exported/133200997/export-5e0e174600365017c21c2e6aae1afeca-refinery.scn
+res://wind_trap.tscn::d64b288942aa57794296bd919551eb2d::1795387161::res://.godot/exported/133200997/export-7e74615c071f38fe77659f6bf502441b-wind_trap.scn
 res://tools/bake_buildings_3d.tscn::69d83f22022812c294536395a5db9054::1795358019::res://.godot/exported/133200997/export-493e7f74483a5b6e8621d68db0207554-bake_buildings_3d.scn
 res://tools/bake_units_3d.tscn::8b3edabe5668b9460ee436cc01757366::1795360479::res://.godot/exported/133200997/export-f1e44a5eacf10d0dd4e9e3e16378fb24-bake_units_3d.scn
+res://scenes/campaign_map.tscn::c34a0f67e421a4a80a0cc7ee49a9d2ad::1795396789::res://.godot/exported/133200997/export-8ce1c672b5b8a65bda08cb46abd581a3-campaign_map.scn
+res://scenes/house_select.tscn::9776cd5757e2909b3912d0ea8da50f6c::1795395101::res://.godot/exported/133200997/export-a906ce98416dabd7cf0387011b26ba62-house_select.scn
+res://scenes/mission_briefing.tscn::b987a224583857618a9b2e6e98756f7d::1795399116::res://.godot/exported/133200997/export-71cdf78d9b077aaaa39eb1cc7475ef66-mission_briefing.scn
