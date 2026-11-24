@@ -9,15 +9,22 @@ extends RefCounted
 
 const FRAMES := 4
 const FPS := 2.2
-## The baked turret sheets include generous transparent margins. Scale the
-## runtime view down so both bunkers read as true 1x1 structures instead of
-## spilling over most of a 2x2 footprint. The collision rect remains 1x1.
+## Sheets now bake at 2x pixel density. All StructureView nodes are scaled by
+## WORLD_SPRITE_SCALE so their world footprint is unchanged; turret sheets have
+## generous transparent margins, so their view is scaled down further to read
+## as a true 1x1 bunker. Collision rects remain 1x1.
 ##
-## Head-sheet convention: cell 0 = east, and increasing cells run
-## counter-clockwise (4 = north, 8 = west, 12 = south) because the building
-## baker uses rotation.y = +angle. Building negates aim when choosing a cell.
-const TURRET_VISUAL_SCALE := 0.46
-const TURRET_MUZZLE_DISTANCE := {"turret": 32.0, "rocketturret": 24.0}
+## Head-sheet convention: the building baker looks from +Y, which mirrors screen
+## X. Cell 0 points west on screen; increasing cells run clockwise (4 = north,
+## 8 = east, 12 = south). Building maps its aim into that strip.
+const WORLD_SPRITE_SCALE := 0.5
+const TURRET_VISUAL_SCALE := 0.23
+## The compact gun head ends at roughly 0.72 model units; the old long barrel
+## reached ~1.0. Keep the projectile origin at the new muzzle.
+const TURRET_MUZZLE_DISTANCE := {"turret": 28.0, "rocketturret": 24.0}
+## The head render is centered on the pivot; keep its world-space vertical
+## alignment fixed even though the sheet resolution doubled.
+const TURRET_HEAD_OFFSET_Y := -0.92
 const SHADER_PATH := "res://shaders/faction_remap.gdshader"
 const BASE_DIR := "res://assets/sprites/buildings"
 const HEAD_DIR := "res://assets/sprites/buildings"
@@ -28,11 +35,11 @@ const HEAD_DIR := "res://assets/sprites/buildings"
 const ART_TOPS := {
 	"cy": -103.0,
 	"refinery": -75.0,
-	"windtrap": -67.0,
-	"barracks": -83.0,
-	"factory": -85.0,
+	"windtrap": -66.5,
+	"barracks": -63.5,
+	"factory": -144.0,
 	"turret": -17.0,
-	"rocketturret": -18.0,
+	"rocketturret": -17.5,
 	"wall": -23.0,
 	"slab": -1.0,
 }
@@ -72,7 +79,7 @@ static func art_top(id: String) -> float:
 	return float(ART_TOPS.get(id, -96.0))
 
 static func turret_visual_scale(id: String) -> float:
-	return TURRET_VISUAL_SCALE if id == "turret" or id == "rocketturret" else 1.0
+	return TURRET_VISUAL_SCALE if id == "turret" or id == "rocketturret" else WORLD_SPRITE_SCALE
 
 static func turret_muzzle_distance(id: String) -> float:
 	return float(TURRET_MUZZLE_DISTANCE.get(id, 0.0))

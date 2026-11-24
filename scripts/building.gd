@@ -83,7 +83,9 @@ func configure(id: String, team_id: int, g) -> void:
 			turret_head.material = BuildingArt.material(team)
 			turret_head.z_index = -1
 			turret_head.scale = Vector2(visual_scale, visual_scale)
-			turret_head.position = Vector2(0.0, -2.0 * visual_scale)
+			# Independent world-space offset: the head sheet doubled and the
+			# scale halved, so tying this to visual_scale would move the mount.
+			turret_head.position = Vector2(0.0, BuildingArt.TURRET_HEAD_OFFSET_Y)
 			add_child(turret_head)
 			_update_turret_frame()
 
@@ -211,12 +213,11 @@ func _process(delta: float) -> void:
 func _update_turret_frame() -> void:
 	if turret_head == null:
 		return
-	# The building-head baker rotates models with `rotation.y = +angle` and a
-	# fixed south camera. Positive Y rotation runs east -> north -> west ->
-	# south, the opposite of screen angle: cell 4 points north and cell 12
-	# points south. Negate the 2D aim angle before selecting the cell. Unit
-	# sprites use their own south-camera mapping in UnitArt.direction_index.
-	var f := posmod(int(round(-aim / TAU * 16.0)), 16)
+	# Building sheets are rendered from the north-facing building camera, which
+	# mirrors the screen X axis. In the baked head strip cell 0 points west on
+	# screen, cell 4 north, cell 8 east and cell 12 south. Map the aim through
+	# that mirrored convention so the barrel follows the projectile vector.
+	var f := posmod(8 + int(round(aim / TAU * 16.0)), 16)
 	turret_head.frame_coords = Vector2i(f, 0)
 
 func _fire_cannon(target) -> void:

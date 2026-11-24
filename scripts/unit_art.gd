@@ -13,7 +13,11 @@ const BASE_DIR := "res://assets/sprites/units"
 const ICON_DIR := "res://assets/icons/units"
 const SHADER_PATH := "res://shaders/faction_remap.gdshader"
 
-const SCALE := 2
+## Baked texture pixels per logical footprint pixel. The baker now renders
+## cells at 4x; draw_rect() still returns the unchanged logical CELLS size, so
+## the 2x texture-density increase is cancelled at draw time and collision
+## spacing is untouched.
+const SCALE := 4
 const VEHICLE_FRAMES := 16
 const INFANTRY_DIRS := 8
 const INFANTRY_FRAMES := 4
@@ -29,14 +33,17 @@ const CELLS := {
 	"trike": 48,
 	"raider_trike": 48,
 	"quad": 50,
-	"tank": 60,
+	"tank": 64,
 	"atreides_tank": 60,
 	"harkonnen_tank": 62,
 	"ordos_tank": 58,
 	"sonic_tank": 62,
-	"devastator": 66,
+	# The Devastator renders 1.3x a combat tank's hull width/length; its radius
+	# stays 22, so only the visual footprint grows.
+	"devastator": 84,
 	"deviator": 60,
-	"harvester": 62,
+	# Longer industrial rig with a wide front scoop.
+	"harvester": 70,
 	"carryall": 96,
 }
 
@@ -145,7 +152,12 @@ static func draw_rect(id: String) -> Rect2:
 
 static func muzzle_distance(id: String, radius: float) -> float:
 	match id:
-		"tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "devastator":
+		"devastator":
+			return radius * 2.05
+		"tank":
+			# Siege artillery: extra-long barrel muzzle.
+			return radius * 2.0
+		"atreides_tank", "harkonnen_tank", "ordos_tank":
 			return radius * 1.86
 		"sonic_tank":
 			return radius * 1.70

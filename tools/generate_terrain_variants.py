@@ -6,6 +6,7 @@ Outputs:
   assets/sprites/d2/terrain_sand_clean.png      640 px seamless base
   assets/sprites/d2/terrain_rock_variants.png   8 x 40px cells
   assets/sprites/d2/terrain_sand_variants.png   4 x 40px cells
+  assets/sprites/d2/terrain_spice_blooms.png    8 x 96px organic bloom cells
 
 The clean base sheets are new, procedurally generated seamless plates with no
 legacy 40 px tint cells. The original terrain_rock/sand source files are never
@@ -21,7 +22,7 @@ import math
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets/sprites/d2"
@@ -32,6 +33,11 @@ ROCK_PAL = [(201, 129, 82), (186, 109, 62), (153, 85, 49), (108, 60, 37)]
 SAND_PAL = [(230, 204, 163), (216, 184, 136), (190, 154, 105), (158, 122, 79)]
 CLEAN_ROCK = OUT_DIR / "terrain_rock_clean.png"
 CLEAN_SAND = OUT_DIR / "terrain_sand_clean.png"
+SPICE_BLOOMS = OUT_DIR / "terrain_spice_blooms.png"
+SPICE_BLOOM = 96
+SPICE_DUST = [(224, 156, 96), (209, 129, 67), (232, 172, 111), (195, 109, 55)]
+SPICE_MID = [(181, 79, 26), (203, 104, 35), (159, 62, 18), (218, 127, 52)]
+SPICE_DEEP = [(102, 35, 11), (128, 43, 13), (84, 27, 9), (145, 53, 17)]
 
 
 def periodic(rng, terms):
@@ -333,27 +339,158 @@ def make_clean_rock() -> Image.Image:
 
 
 def make_clean_sand() -> Image.Image:
-    """Pale wind-blown dunes with soft ripples and fine crystalline grain."""
+    """Pale dunes with broad wind waves, fine secondary ripples and grain."""
     W = 640
     yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
     broad = (0.58 * _tile_noise(511, 3, 3) + 0.42 * _tile_noise(512, 9, 2))
+    medium = 0.64 * _tile_noise(517, 5, 3) + 0.36 * _tile_noise(518, 13, 2)
+    # Two periodic ripple trains make the wind lines finer than the old single
+    # broad wave. Both phases wrap at the sheet dimensions, so the 640 px base
+    # still tiles without a visible seam.
     phase = (2 * np.pi * (yy * 7.0 + xx * 2.0 + 6.0 * np.sin(2 * np.pi * xx / W)) / W
              + broad * 4.2)
+    fine_phase = (2 * np.pi * (yy * 23.0 + xx * 6.0
+                              + 2.4 * np.sin(2 * np.pi * xx * 2.0 / W + 0.9)
+                              + 1.3 * np.sin(2 * np.pi * yy * 3.0 / W + 2.2)) / W
+                  + broad * 3.4 + medium * 1.6)
+    micro_phase = (2 * np.pi * (yy * 31.0 + xx * 11.0
+                               + 1.6 * np.sin(2 * np.pi * xx * 5.0 / W)) / W
+                   + broad * 1.7)
     ripple = 0.5 + 0.5 * np.sin(phase)
-    h = 0.58 * ripple + 0.42 * broad
-    light = np.array([237.0, 217.0, 183.0], dtype=np.float32)
-    dark = np.array([204.0, 171.0, 126.0], dtype=np.float32)
+    fine = 0.5 + 0.5 * np.sin(fine_phase)
+    micro = 0.5 + 0.5 * np.sin(micro_phase)
+    h = 0.50 * ripple + 0.25 * broad + 0.16 * fine + 0.09 * medium
+    light = np.array([241.0, 220.0, 186.0], dtype=np.float32)
+    dark = np.array([201.0, 166.0, 119.0], dtype=np.float32)
     img = dark[None, None, :] + (light - dark)[None, None, :] * h[..., None]
-    shade = _nw_light(ripple * 0.72 + broad * 0.28, 46.0)
-    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([11.0, 9.0, 6.0])
-    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([8.0, 7.0, 5.0])
-    img += (_tile_noise(513, 120, 2) - 0.5)[..., None] * 6.0
-    img += (_tile_noise(516, 300, 1) - 0.5)[..., None] * 2.6
+    # Broad thermal variation keeps the desert from reading as one flat beige.
+    img += (medium - 0.5)[..., None] * np.array([8.0, 5.0, 1.5])
+    img += (fine - 0.5)[..., None] * np.array([4.5, 3.5, 2.2])
+    img += (micro - 0.5)[..., None] * np.array([2.0, 1.6, 1.0])
+    shade = _nw_light(fine * 0.30 + ripple * 0.38 + broad * 0.24 + medium * 0.08, 52.0)
+    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([12.0, 9.5, 6.0])
+    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([9.0, 7.5, 5.2])
+    img += (_tile_noise(513, 120, 2) - 0.5)[..., None] * 6.5
+    img += (_tile_noise(516, 300, 1) - 0.5)[..., None] * 2.8
+    img += (_tile_noise(521, 210, 2) - 0.5)[..., None] * 3.2
     rng = np.random.default_rng(514)
     img += rng.integers(-3, 4, (W, W, 1)).astype(np.float32)
     sand = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
     sand = _wrap_dust_and_pebbles(sand, 505, 12, 26, (246, 227, 194), 9)
     return _sparkle(sand, 515, 240, (12, 10, 8))
+
+
+def spice_bloom(seed: int, dense: bool) -> np.ndarray:
+    """One feathered, granular spice bloom with no tile-shaped boundary."""
+    rng = np.random.default_rng(seed)
+    W = SPICE_BLOOM
+    yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
+    center = (W - 1) * 0.5
+    dx = (xx - center) / (W * 0.5)
+    dy = (yy - center) / (W * 0.5)
+    radius = np.sqrt(dx * dx + dy * dy)
+    angle = np.arctan2(dy, dx)
+    phase = rng.uniform(0.0, math.tau)
+    # A softly broken, wind-eaten perimeter. The stamp never touches its cell
+    # border, so overlapping stamps cannot create a 40 px square grid.
+    wobble = (1.0 + 0.065 * np.sin(3.0 * angle + phase)
+              + 0.035 * np.sin(7.0 * angle - phase * 1.7)
+              + 0.018 * np.sin(11.0 * angle + phase * 0.6))
+    warped = radius * wobble
+    edge = 1.0 - smoothstep(0.32, 1.02, warped)
+    lattice = (rng.random((11, 11)) * 255.0).astype(np.uint8)
+    noise_img = Image.fromarray(lattice, "L").resize((W, W), Image.Resampling.BICUBIC)
+    noise_img = noise_img.filter(ImageFilter.GaussianBlur(5.0))
+    variation = np.asarray(noise_img, dtype=np.float32) / 255.0
+    density = np.clip(edge * (0.56 + 0.44 * variation), 0.0, 1.0)
+
+    halo_col = np.array((188.0, 92.0, 35.0) if dense else (216.0, 139.0, 76.0))
+    arr = np.zeros((W, W, 4), dtype=np.float32)
+    arr[..., :3] = halo_col[None, None, :]
+    arr[..., 3] = density * (0.43 if dense else 0.40) * 255.0
+    if dense:
+        core = np.clip((1.0 - smoothstep(0.04, 0.76, warped)) * edge, 0.0, 1.0)
+        core_col = np.array((112.0, 34.0, 10.0), dtype=np.float32)
+        arr[..., :3] = arr[..., :3] * (1.0 - core[..., None]) + core_col * core[..., None]
+        arr[..., 3] = np.maximum(arr[..., 3], core * 255.0 * 0.52)
+    img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA")
+    draw = ImageDraw.Draw(img)
+
+    cluster_count = 16 if dense else 12
+    clusters = []
+    for _ in range(cluster_count):
+        a = rng.uniform(0.0, math.tau)
+        r = math.sqrt(rng.uniform(0.0, 0.72)) * W * 0.5
+        clusters.append((W * 0.5 + math.cos(a) * r, W * 0.5 + math.sin(a) * r * 0.92))
+
+    # A few larger translucent clumps give each bloom a granular mass at RTS
+    # zoom; the individual specks then catch the light on top of those clumps.
+    for _ in range(26 if dense else 9):
+        a = rng.uniform(0.0, math.tau)
+        r = math.sqrt(rng.uniform(0.0, 0.58 if dense else 0.68)) * W * 0.5
+        x = W * 0.5 + math.cos(a) * r
+        y = W * 0.5 + math.sin(a) * r * 0.92
+        rr = rng.uniform(2.0, 5.5)
+        col = SPICE_MID[int(rng.integers(0, len(SPICE_MID)))] if dense else SPICE_DUST[2]
+        draw.ellipse([x - rr, y - rr * 0.70, x + rr, y + rr * 0.70],
+                     fill=(*col, int(rng.integers(62, 104)) if dense else int(rng.integers(42, 72))))
+
+    grain_count = 900 if dense else 600
+    for _ in range(grain_count):
+        if rng.random() < 0.72:
+            cx, cy = clusters[int(rng.integers(0, len(clusters)))]
+            x = rng.normal(cx, rng.uniform(2.0, 7.0))
+            y = rng.normal(cy, rng.uniform(1.5, 5.0))
+        else:
+            a = rng.uniform(0.0, math.tau)
+            r = math.sqrt(rng.uniform(0.0, 0.84)) * W * 0.5
+            x = W * 0.5 + math.cos(a) * r
+            y = W * 0.5 + math.sin(a) * r * 0.92
+        ix, iy = int(x), int(y)
+        if ix < 2 or iy < 2 or ix >= W - 2 or iy >= W - 2:
+            continue
+        if rng.random() > float(density[iy, ix]) * 0.94 + 0.04:
+            continue
+        r = math.hypot(x - W * 0.5, y - W * 0.5) / (W * 0.5)
+        if dense:
+            if r < 0.26 and rng.random() < 0.70:
+                col = SPICE_DEEP[int(rng.integers(0, len(SPICE_DEEP)))]
+            elif r < 0.60 and rng.random() < 0.64:
+                col = SPICE_MID[int(rng.integers(0, len(SPICE_MID)))]
+            else:
+                col = SPICE_DUST[int(rng.integers(0, len(SPICE_DUST)))]
+        else:
+            col = SPICE_DUST[int(rng.integers(0, len(SPICE_DUST)))] if rng.random() < 0.76 else SPICE_MID[0]
+        rr = rng.uniform(0.55, 1.45)
+        alpha = int(rng.integers(118, 238))
+        draw.ellipse([x - rr, y - rr * 0.72, x + rr, y + rr * 0.72], fill=(*col, alpha))
+        if alpha > 165 and rng.random() < 0.34:
+            draw.point((ix - 1, iy - 1), fill=(*SPICE_DUST[0], min(255, alpha + 22)))
+
+    out = np.asarray(img, dtype=np.uint8).copy()
+    # Guaranteed transparent margin: runtime draws these stamps larger than a
+    # tile and lets their halos overlap in every direction.
+    out[:2, :, 3] = 0
+    out[-2:, :, 3] = 0
+    out[:, :2, 3] = 0
+    out[:, -2:, 3] = 0
+    return out
+
+
+def make_spice_blooms() -> list[np.ndarray]:
+    # Four dusty stamps carry low-density fields, four dense stamps add the
+    # deep rust cores. Both sets keep the same soft outer feather.
+    dusty = [spice_bloom(6101 + i * 43, False) for i in range(4)]
+    dense = [spice_bloom(7101 + i * 59, True) for i in range(4)]
+    return dusty + dense
+
+
+def verify_spice_blooms(blooms: list[np.ndarray]) -> None:
+    for i, arr in enumerate(blooms):
+        assert arr.shape == (SPICE_BLOOM, SPICE_BLOOM, 4), f"bloom cell {i} shape"
+        assert np.all(arr[:2, :, 3] == 0) and np.all(arr[-2:, :, 3] == 0), f"bloom cell {i} vertical edge"
+        assert np.all(arr[:, :2, 3] == 0) and np.all(arr[:, -2:, 3] == 0), f"bloom cell {i} horizontal edge"
+    print("spice blooms: 4 dusty + 4 dense, transparent 2 px edges")
 
 
 def verify_clean_wrap(name: str, img: Image.Image) -> None:
@@ -372,6 +509,13 @@ def write_strip(variants: list[np.ndarray], path: Path) -> None:
     strip = Image.new("RGBA", (TILE * len(variants), TILE), (0, 0, 0, 0))
     for i, arr in enumerate(variants):
         strip.alpha_composite(Image.fromarray(arr, "RGBA"), (i * TILE, 0))
+    strip.save(path)
+
+
+def write_bloom_strip(blooms: list[np.ndarray], path: Path) -> None:
+    strip = Image.new("RGBA", (SPICE_BLOOM * len(blooms), SPICE_BLOOM), (0, 0, 0, 0))
+    for i, arr in enumerate(blooms):
+        strip.alpha_composite(Image.fromarray(arr, "RGBA"), (i * SPICE_BLOOM, 0))
     strip.save(path)
 
 
@@ -426,17 +570,21 @@ def main() -> None:
     verify_edges(sand)
     clean_rock = make_clean_rock()
     clean_sand = make_clean_sand()
+    blooms = make_spice_blooms()
     verify_clean_wrap("rock", clean_rock)
     verify_clean_wrap("sand", clean_sand)
+    verify_spice_blooms(blooms)
     clean_rock.save(CLEAN_ROCK)
     clean_sand.save(CLEAN_SAND)
     write_strip(rock, OUT_DIR / "terrain_rock_variants.png")
     write_strip(sand, OUT_DIR / "terrain_sand_variants.png")
+    write_bloom_strip(blooms, SPICE_BLOOMS)
     preview(rock, sand)
     print("wrote", CLEAN_ROCK, "seamless clean base")
     print("wrote", CLEAN_SAND, "seamless clean base")
     print("wrote", OUT_DIR / "terrain_rock_variants.png", len(rock), "variants")
     print("wrote", OUT_DIR / "terrain_sand_variants.png", len(sand), "variants")
+    print("wrote", SPICE_BLOOMS, len(blooms), "organic bloom cells")
 
 
 if __name__ == "__main__":

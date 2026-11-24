@@ -618,6 +618,11 @@ func on_unit_destroyed(u) -> void:
 		player_units_lost += 1
 	units.erase(u)
 	selected.erase(u)
+	# Classic Dune 2000: a wrecked Devastator's reactor goes critical. This is
+	# deliberately indiscriminate, so clumping friendly armour around one is a
+	# real risk rather than a free shield.
+	if u.type_id == "devastator" and not u.swallowed:
+		_devastator_meltdown(u.global_position)
 	if u.crushed:
 		# Tracks leave dust and a squashed smear, not a full explosion.
 		if fx != null:
@@ -635,6 +640,38 @@ func on_unit_destroyed(u) -> void:
 		if fx != null:
 			fx.blast(u.global_position)
 		play_sfx("explosion_medium", u.global_position, -1.0)
+
+## Devastator reactor blast: a large nuclear fireball plus falloff damage to
+## every unit and structure around the wreck, regardless of team.
+func _devastator_meltdown(center: Vector2) -> void:
+	const BLAST_RADIUS := 155.0
+	const BLAST_DAMAGE := 95.0
+	if fx != null:
+		fx.nuke(center)
+		fx.impact(center, "plasma", 3.0)
+		fx.sand_burst(center, 118.0, 1.35)
+		fx.popup("REACTOR BLAST", center + Vector2(0.0, -46.0))
+	if scorch_layer != null:
+		scorch_layer.add(center, 46.0)
+	play_sfx("explosion_building", center, 0.0, 0.85)
+	for other in units.duplicate():
+		if not is_instance_valid(other) or other.dead or other.airborne:
+			continue
+		var reach: float = BLAST_RADIUS + float(other.radius)
+		var d: float = center.distance_to(other.global_position)
+		if d > reach:
+			continue
+		var falloff := clampf(1.0 - d / reach, 0.0, 1.0)
+		other.take_damage(BLAST_DAMAGE * (0.35 + 0.65 * falloff))
+	for b in buildings.duplicate():
+		if not is_instance_valid(b) or b.dead:
+			continue
+		var reach: float = BLAST_RADIUS + float(b.size_px) * 0.5
+		var d: float = center.distance_to(b.global_position)
+		if d > reach:
+			continue
+		var falloff := clampf(1.0 - d / reach, 0.0, 1.0)
+		b.take_damage(BLAST_DAMAGE * (0.35 + 0.65 * falloff))
 
 func on_building_destroyed(b) -> void:
 	if b.team == 1:

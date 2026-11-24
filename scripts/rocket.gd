@@ -99,9 +99,16 @@ func _impact() -> void:
 		_splash_at(b, hit_pos, b.size_px * 0.5)
 	if game.fx != null:
 		game.fx.impact(hit_pos, "gas" if special == "deviate" else "rocket", blast_power)
+		if special == "deviate":
+			# The warhead leaves a lingering emerald cloud, not just a flash.
+			game.fx.gas_cloud(hit_pos, maxf(splash_radius, 56.0))
 	if game.scorch_layer != null:
 		game.scorch_layer.add(hit_pos, 13.0 * visual_scale)
-	game.play_sfx("explosion_small", hit_pos, -2.0)
+	if special == "deviate":
+		game.play_sfx("explosion_small", hit_pos, -5.0, 0.82)
+	else:
+		# Quad mini-rockets are much quieter than a full Rocket Trooper tube.
+		game.play_sfx("explosion_small", hit_pos, -8.0 if visual_scale < 0.7 else -2.0)
 	queue_free()
 
 func _splash_at(victim, hit_pos: Vector2, body_radius: float) -> void:

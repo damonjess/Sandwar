@@ -35,6 +35,8 @@ SPECS = {
     "rifle_01.wav": ("rifle", 0),
     "rifle_02.wav": ("rifle", 1),
     "mg_burst.wav": ("mg_burst", 0),
+    "sonic_fire.wav": ("sonic_fire", 0),
+    "plasma_fire.wav": ("plasma_fire", 0),
     "explosion_small_01.wav": ("explosion_small", 0),
     "explosion_small_02.wav": ("explosion_small", 1),
     "explosion_medium_01.wav": ("explosion_medium", 0),
@@ -52,6 +54,8 @@ DURATIONS = {
     "rocket_launch": 0.55,
     "rifle": 0.12,
     "mg_burst": 0.26,
+    "sonic_fire": 0.72,
+    "plasma_fire": 0.85,
     "explosion_small": 0.40,
     "explosion_medium": 0.82,
     "explosion_building": 1.38,
@@ -67,6 +71,8 @@ PEAKS = {
     "rocket_launch": 0.80,
     "rifle": 0.76,
     "mg_burst": 0.72,
+    "sonic_fire": 0.88,
+    "plasma_fire": 0.92,
     "explosion_small": 0.90,
     "explosion_medium": 0.92,
     "explosion_building": 0.94,
@@ -230,6 +236,53 @@ def _np_mg_burst() -> np.ndarray:
     return _np_finish(mix, PEAKS["mg_burst"])
 
 
+def _np_sonic_fire() -> np.ndarray:
+    rng = _np_rng(seed_for("sonic_fire", 0))
+    t = _np_t(DURATIONS["sonic_fire"])
+    n = t.size
+    # A projected acoustic pulse: descending resonant chirp, airy pressure
+    # wash and a low chest-thump rather than a gunshot crack.
+    phase = _np_phase(_np_sweep(t, 2400.0, 240.0, 0.58))
+    env = _np_env(t, 0.006, 0.30)
+    tone = np.sin(phase) * env * 0.68
+    tone += np.sin(phase * 1.51 + 0.5) * env * 0.30
+    tone += np.sin(phase * 2.02 + 1.2) * env * 0.14
+    shimmer = 1.0 + 0.16 * np.sin(2.0 * math.pi * 13.0 * t + 0.6 * np.sin(2.0 * math.pi * 3.0 * t))
+    tone *= shimmer
+    wash = _np_bandpass(_np_noise(n, rng), 500.0, 4200.0)
+    wash *= np.clip(t / 0.02, 0.0, 1.0) * np.exp(-t / 0.22) * 0.42
+    sub = np.sin(2.0 * math.pi * 92.0 * t) * np.exp(-t / 0.16) * 0.40
+    mix = tone + wash + sub
+    mix += _np_grit(n, rng, 0.012)
+    mix = _np_soft(mix * 1.30, 1.2)
+    return _np_finish(mix, PEAKS["sonic_fire"])
+
+
+def _np_plasma_fire() -> np.ndarray:
+    rng = _np_rng(seed_for("plasma_fire", 0))
+    t = _np_t(DURATIONS["plasma_fire"])
+    n = t.size
+    mix = np.zeros(n, dtype=np.float64)
+    # Two barrels discharging almost together: the heavy double-thump.
+    for shot, start_s in enumerate((0.0, 0.16)):
+        start = int(start_s * RATE)
+        if start >= n:
+            continue
+        local = t[: n - start]
+        sub_phase = _np_phase(_np_sweep(local, 150.0 + shot * 18.0, 36.0, 0.18))
+        thump = np.sin(sub_phase) * np.exp(-local / 0.20)
+        crunch = _np_bandpass(_np_noise(local.size, rng), 300.0, 3600.0) * np.exp(-local / 0.055)
+        crack = _np_highpass(_np_noise(local.size, rng), 3400.0) * np.exp(-local / 0.012) * 0.5
+        mix[start:] += thump * (0.95 - shot * 0.10) + crunch * 0.55 + crack * 0.35
+    hum = np.sin(_np_phase(_np_sweep(t, 78.0, 52.0, 0.65))) * np.exp(-t / 0.40) * 0.35
+    hiss = _np_bandpass(_np_noise(n, rng), 900.0, 5200.0)
+    hiss *= np.clip(t / 0.04, 0.0, 1.0) * np.exp(-t / 0.30) * 0.28
+    mix += hum + hiss
+    mix += _np_grit(n, rng, 0.016)
+    mix = _np_soft(mix * 1.55, 1.35)
+    return _np_finish(mix, PEAKS["plasma_fire"])
+
+
 def _np_explosion_small(variation: int) -> np.ndarray:
     rng = _np_rng(seed_for("explosion_small", variation))
     t = _np_t(DURATIONS["explosion_small"] + variation * 0.02)
@@ -385,6 +438,8 @@ def render_np(kind: str, variation: int) -> np.ndarray:
         "rocket_launch": _np_rocket_launch,
         "rifle": _np_rifle,
         "mg_burst": lambda _v: _np_mg_burst(),
+        "sonic_fire": lambda _v: _np_sonic_fire(),
+        "plasma_fire": lambda _v: _np_plasma_fire(),
         "explosion_small": _np_explosion_small,
         "explosion_medium": _np_explosion_medium,
         "explosion_building": lambda _v: _np_explosion_building(),
@@ -469,6 +524,27 @@ def render_py(kind: str, variation: int) -> list[float]:
                  + math.sin(2.0 * math.pi * (760.0 + shot * 22.0) * local) * math.exp(-local / 0.021) * 0.5
                  + lp * math.exp(-local / 0.026) * 0.45) * gate
             v = _py_tanh(v * 1.4, 1.2)
+        elif kind == "sonic_fire":
+            f = 2400.0 + (240.0 - 2400.0) * min(t / 0.58, 1.0)
+            phase += 2.0 * math.pi * f / RATE
+            env = math.exp(-t / 0.30)
+            shimmer = 1.0 + 0.16 * math.sin(2.0 * math.pi * 13.0 * t)
+            v = (math.sin(phase) * 0.68 + math.sin(phase * 1.51 + 0.5) * 0.30
+                 + math.sin(phase * 2.02 + 1.2) * 0.14) * env * shimmer
+            v += (hp * 0.55 + lp * 0.6) * math.exp(-t / 0.22) * 0.32
+            v += math.sin(2.0 * math.pi * 92.0 * t) * math.exp(-t / 0.16) * 0.32
+            v = _py_tanh(v * 1.3, 1.2)
+        elif kind == "plasma_fire":
+            v = 0.0
+            for shot, start_s in enumerate((0.0, 0.16)):
+                local = t - start_s
+                if local < 0.0:
+                    continue
+                f = 150.0 + shot * 18.0 + (36.0 - 150.0 - shot * 18.0) * min(local / 0.18, 1.0)
+                v += math.sin(2.0 * math.pi * f * local) * math.exp(-local / 0.20) * (0.9 - shot * 0.10)
+                v += (lp * 2.2 + white * math.exp(-local / 0.012) * 0.8) * math.exp(-local / 0.055) * 0.55
+            v += lp2 * math.exp(-t / 0.40) * 1.2
+            v = _py_tanh(v * 1.55, 1.35)
         elif kind in ("explosion_small", "explosion_medium", "explosion_building"):
             deep_end = 30.0 if kind == "explosion_small" else 25.0
             sweep_time = 0.16 if kind == "explosion_small" else 0.55

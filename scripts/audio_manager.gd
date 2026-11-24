@@ -14,6 +14,8 @@ const SOUND_FILES := {
 	"rocket_launch": ["rocket_launch_01.wav", "rocket_launch_02.wav"],
 	"rifle": ["rifle_01.wav", "rifle_02.wav"],
 	"mg_burst": ["mg_burst.wav"],
+	"sonic_fire": ["sonic_fire.wav"],
+	"plasma_fire": ["plasma_fire.wav"],
 	"explosion_small": ["explosion_small_01.wav", "explosion_small_02.wav"],
 	"explosion_medium": ["explosion_medium_01.wav", "explosion_medium_02.wav"],
 	"explosion_building": ["explosion_building.wav"],
@@ -29,6 +31,8 @@ const SOUND_FILES := {
 const COOLDOWN_MS := {
 	"rifle": 45,
 	"mg_burst": 55,
+	"sonic_fire": 120,
+	"plasma_fire": 140,
 	"cannon": 60,
 	"rocket_launch": 80,
 	"explosion_small": 60,
@@ -46,6 +50,8 @@ const COOLDOWN_MS := {
 const MAX_CONCURRENT := {
 	"rifle": 4,
 	"mg_burst": 4,
+	"sonic_fire": 2,
+	"plasma_fire": 2,
 	"cannon": 3,
 	"rocket_launch": 3,
 	"explosion_small": 4,

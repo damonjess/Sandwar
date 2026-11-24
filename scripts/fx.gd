@@ -9,8 +9,18 @@ var impacts: Array = []
 var blasts: Array = []
 var texts: Array = []
 var waves: Array = []
+## Floating text stays legible over sunlit sand: a crisp dark outline plus a
+## 2 px drop shadow, bright gold for credit gains and hot orange-red for
+## combat/status callouts.
+const POPUP_FONT_SIZE := 16
+const POPUP_GOLD := Color(1.0, 0.84, 0.30)
+const POPUP_COMBAT := Color(1.0, 0.40, 0.267)
+const POPUP_OUTLINE := Color(0.035, 0.018, 0.008, 0.98)
 ## Expanding sand shockwaves for Sandworm surfacing and Carryall touchdown.
 var bursts: Array = []
+## Lingering Deviator chemical clouds and Devastator reactor detonations.
+var gas_clouds: Array = []
+var nukes: Array = []
 ## Drifting desert dust motes. Positions live in world space and wrap inside
 ## the camera's visible rectangle, so the effect follows the view for free.
 var wind: Array = []
@@ -52,6 +62,16 @@ func impact(pos: Vector2, kind: String, power := 1.0) -> void:
 func blast(pos: Vector2, power := 1.0) -> void:
 	blasts.append({"p": pos, "t": 0.0, "power": power})
 
+## Deviator impact: a bright emerald cloud that lingers and billows, so the
+## converted zone stays visible after the flash is gone.
+func gas_cloud(pos: Vector2, radius := 56.0) -> void:
+	gas_clouds.append({"p": pos, "r": radius, "t": 0.0, "life": 2.8})
+
+## Devastator reactor meltdown: a multi-stage nuclear blast, far larger than
+## any ordinary death fireball.
+func nuke(pos: Vector2) -> void:
+	nukes.append({"p": pos, "t": 0.0, "life": 1.5})
+
 func popup(text: String, pos: Vector2) -> void:
 	texts.append({"text": text, "p": pos, "t": 0.0})
 
@@ -65,7 +85,7 @@ func sonic_wave(from: Vector2, dir: Vector2, length: float, team: int) -> void:
 
 func _process(delta: float) -> void:
 	_advance_wind(delta)
-	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty() and waves.is_empty() and bursts.is_empty() and wind.is_empty():
+	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty() and waves.is_empty() and bursts.is_empty() and gas_clouds.is_empty() and nukes.is_empty() and wind.is_empty():
 		return
 	for f in flashes:
 		f["t"] = float(f["t"]) + delta
@@ -80,18 +100,26 @@ func _process(delta: float) -> void:
 		w["t"] = float(w["t"]) + delta
 	for s in bursts:
 		s["t"] = float(s["t"]) + delta
+	for c in gas_clouds:
+		c["t"] = float(c["t"]) + delta
+	for n in nukes:
+		n["t"] = float(n["t"]) + delta
 	flashes = flashes.filter(func(f): return float(f["t"]) < float(f["life"]))
 	impacts = impacts.filter(func(i): return float(i["t"]) < float(i["life"]))
 	blasts = blasts.filter(func(b): return float(b["t"]) < 0.5)
 	texts = texts.filter(func(t): return float(t["t"]) < 1.6)
 	waves = waves.filter(func(w): return float(w["t"]) < float(w["life"]))
 	bursts = bursts.filter(func(s): return float(s["t"]) < 0.9)
+	gas_clouds = gas_clouds.filter(func(c): return float(c["t"]) < float(c["life"]))
+	nukes = nukes.filter(func(n): return float(n["t"]) < float(n["life"]))
 	queue_redraw()
 
 func _draw() -> void:
 	_draw_wind()
 	for s in bursts:
 		_draw_sand_burst(s)
+	for c in gas_clouds:
+		_draw_gas_cloud(c)
 	for i in impacts:
 		_draw_impact(i)
 	for b in blasts:
@@ -100,13 +128,26 @@ func _draw() -> void:
 		var r := (18.0 * (1.0 - k) + 4.0) * power
 		draw_circle(b["p"], r, Color(1.0, 0.50, 0.12, k * 0.78))
 		draw_circle(b["p"], r * 0.55, Color(1.0, 0.86, 0.34, k * 0.88))
+	for n in nukes:
+		_draw_nuke(n)
 	for w in waves:
 		_draw_wave(w)
 	for f in flashes:
 		_draw_muzzle(f)
 	for t in texts:
 		var k := clampf(1.0 - float(t["t"]) / 1.6, 0.0, 1.0)
-		draw_string(ThemeDB.fallback_font, t["p"], String(t["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 1.0, 0.85, k))
+		var font := ThemeDB.fallback_font
+		var text := String(t["text"])
+		var fill := POPUP_GOLD if text.begins_with("+") else POPUP_COMBAT
+		var p: Vector2 = t["p"]
+		# Offset shadow first, then a true 2 px outline so the glyphs remain
+		# crisp even when several popups overlap bright spice or rock.
+		draw_string(font, p + Vector2(2.0, 2.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			POPUP_FONT_SIZE, Color(0.0, 0.0, 0.0, 0.62 * k))
+		draw_string_outline(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			POPUP_FONT_SIZE, 2, Color(POPUP_OUTLINE.r, POPUP_OUTLINE.g, POPUP_OUTLINE.b, 0.96 * k))
+		draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			POPUP_FONT_SIZE, Color(fill.r, fill.g, fill.b, k))
 
 func _draw_sand_burst(s: Dictionary) -> void:
 	var k := clampf(float(s["t"]) / 0.9, 0.0, 1.0)
@@ -127,19 +168,94 @@ func _draw_sand_burst(s: Dictionary) -> void:
 		var chunk := p + Vector2(cos(a) * reach, sin(a) * reach * 0.55 - drop)
 		draw_circle(chunk, maxf(1.5, 3.6 * (1.0 - k)), Color(0.62, 0.47, 0.29, alpha * 0.9))
 
+## Sonic Tank: a broad, shimmering cyan-white acoustic cone that travels down
+## the firing line, reading as a directed pressure wave rather than a bullet.
 func _draw_wave(w: Dictionary) -> void:
-	var k := clampf(1.0 - float(w["t"]) / float(w["life"]), 0.0, 1.0)
+	var k := clampf(float(w["t"]) / float(w["life"]), 0.0, 1.0)
+	var fade := 1.0 - k
 	var origin: Vector2 = w["p"]
 	var angle := float(w["a"])
 	var length := float(w["len"])
-	var col: Color = GameDefs.team_color(int(w["team"])).lightened(0.35)
+	var dir := Vector2.RIGHT.rotated(angle)
+	var perp := Vector2(-dir.y, dir.x)
+	var head := length * (0.20 + 0.80 * k)
+	var half_width := 20.0 + 62.0 * k
+	# Translucent fan body, widening as the wavefront advances.
+	draw_colored_polygon(PackedVector2Array([
+		origin + perp * 7.0,
+		origin + dir * head + perp * half_width,
+		origin + dir * head - perp * half_width,
+		origin - perp * 7.0,
+	]), Color(0.42, 0.92, 1.0, 0.13 * fade))
+	draw_colored_polygon(PackedVector2Array([
+		origin + perp * 4.0,
+		origin + dir * head + perp * half_width * 0.62,
+		origin + dir * head - perp * half_width * 0.62,
+		origin - perp * 4.0,
+	]), Color(0.78, 0.99, 1.0, 0.10 * fade))
+	# Bright wavefront arcs, plus a white leading edge.
 	for i in 3:
-		var reach := length * (0.30 + float(i) * 0.24) * (1.0 - k * 0.55)
-		var alpha := k * (0.62 - float(i) * 0.14)
-		draw_arc(origin, reach, angle - 0.46, angle + 0.46, 14,
-			Color(col.r, col.g, col.b, alpha), 3.2 - float(i) * 0.6)
-	draw_line(origin, origin + Vector2.RIGHT.rotated(angle) * length * (0.4 + 0.6 * (1.0 - k)),
-		Color(col.r, col.g, col.b, k * 0.22), 1.2)
+		draw_arc(origin + dir * head, 7.0 + float(i) * 9.0, angle - 1.05, angle + 1.05, 16,
+			Color(0.68, 0.97, 1.0, (0.66 - float(i) * 0.16) * fade), 2.8 - float(i) * 0.6)
+	draw_line(origin + dir * head + perp * half_width,
+		origin + dir * head - perp * half_width,
+		Color(0.92, 1.0, 1.0, 0.56 * fade), 1.8)
+	# Shimmering transverse bands travelling inside the cone.
+	for j in 5:
+		var at := clampf(float(j) / 5.0 + fmod(k * 2.4, 0.20), 0.0, 1.0)
+		var d := at * head
+		var width := lerpf(6.0, half_width, at)
+		draw_line(origin + dir * d + perp * width, origin + dir * d - perp * width,
+			Color(0.72, 0.98, 1.0, 0.20 * fade), 1.2)
+	draw_line(origin, origin + dir * head,
+		Color(0.95, 1.0, 1.0, 0.28 * fade), 2.0)
+
+func _draw_gas_cloud(c: Dictionary) -> void:
+	var life := float(c["life"])
+	var t := float(c["t"])
+	var k := clampf(t / life, 0.0, 1.0)
+	var fade := clampf(1.0 - k, 0.0, 1.0)
+	var p: Vector2 = c["p"]
+	var radius := float(c["r"])
+	var billow := clampf(t / 0.35, 0.0, 1.0)
+	# Low, heavy chemical cloud with brighter rolling tops.
+	for i in 7:
+		var a := TAU * float(i) / 7.0 + 0.35
+		var orbit := radius * (0.18 + 0.55 * billow) * (0.75 + 0.25 * sin(float(i) * 1.7 + t * 2.2))
+		var cp := p + Vector2(cos(a), sin(a) * 0.62) * orbit
+		var puff := radius * (0.42 + 0.16 * sin(t * 3.0 + float(i)))
+		draw_circle(cp, puff, Color(0.16, 0.68, 0.24, 0.20 * fade))
+		draw_circle(cp + Vector2(-2.0, -3.0), puff * 0.68, Color(0.34, 0.92, 0.38, 0.22 * fade))
+		draw_circle(cp + Vector2(-3.0, -5.0), puff * 0.34, Color(0.72, 1.0, 0.62, 0.28 * fade))
+	draw_circle(p, radius * 0.52, Color(0.20, 0.82, 0.30, 0.16 * fade))
+	draw_circle(p, radius * 0.24, Color(0.58, 1.0, 0.48, 0.20 * fade))
+
+func _draw_nuke(n: Dictionary) -> void:
+	var life := float(n["life"])
+	var t := float(n["t"])
+	var k := clampf(t / life, 0.0, 1.0)
+	var fade := 1.0 - k
+	var p: Vector2 = n["p"]
+	# White-hot flash, then a rising orange-red fireball with shock rings.
+	if k < 0.30:
+		var flash := 1.0 - k / 0.30
+		draw_circle(p, 100.0 * flash + 20.0, Color(1.0, 0.98, 0.90, 0.85 * flash))
+	draw_circle(p, (34.0 + 150.0 * k), Color(1.0, 0.44, 0.08, 0.66 * fade))
+	draw_circle(p, (22.0 + 92.0 * k), Color(1.0, 0.72, 0.22, 0.74 * fade))
+	draw_circle(p, (12.0 + 46.0 * k), Color(1.0, 0.94, 0.72, 0.82 * fade))
+	for i in 3:
+		var reach := 52.0 + 170.0 * k + float(i) * 26.0
+		draw_arc(p, reach, 0.0, TAU, 34,
+			Color(1.0, 0.72, 0.30, (0.42 - float(i) * 0.10) * fade), 3.2 - float(i) * 0.7)
+	# Mushroom column and tumbling smoke balls.
+	for i in 6:
+		var a := TAU * float(i) / 6.0 + float(i) * 0.4
+		var orbit := 26.0 + 88.0 * k
+		var smoke := p + Vector2(cos(a) * orbit, sin(a) * orbit * 0.55)
+		draw_circle(smoke, 16.0 + 16.0 * k, Color(0.18, 0.15, 0.12, 0.42 * fade))
+	var rise := 110.0 * k
+	draw_circle(p + Vector2(0.0, -rise), 30.0 + 36.0 * k, Color(0.30, 0.19, 0.12, 0.36 * fade))
+	draw_circle(p + Vector2(0.0, -rise * 1.5), 18.0 + 26.0 * k, Color(0.24, 0.18, 0.13, 0.28 * fade))
 
 func _draw_muzzle(f: Dictionary) -> void:
 	var k := clampf(1.0 - float(f["t"]) / float(f["life"]), 0.0, 1.0)
@@ -159,10 +275,21 @@ func _draw_muzzle(f: Dictionary) -> void:
 			draw_circle(p, 2.5 * k + 1.0, Color(1.0, 0.94, 0.64, 0.95 * k))
 			draw_circle(p + dir * 4.0 + perp * side * 2.0, 4.0,
 				Color(0.56, 0.53, 0.48, 0.42 * k))
+		"plasma":
+			draw_circle(p, 10.0 * k + 2.0, Color(1.0, 0.18, 0.04, 0.55 * k))
+			draw_circle(p, 6.0 * k + 1.5, Color(1.0, 0.52, 0.10, 0.90 * k))
+			draw_circle(p, 3.0 * k + 1.0, Color(1.0, 0.96, 0.82, 0.98 * k))
+			draw_line(p, p + dir * 8.0, Color(1.0, 0.46, 0.10, 0.82 * k), 2.0)
+		"sonic":
+			for i in 3:
+				draw_arc(p, 4.0 + float(i) * 4.0 + (1.0 - k) * 5.0, -0.9, 0.9, 10,
+					Color(0.60, 0.98, 1.0, (0.70 - float(i) * 0.18) * k), 2.4 - float(i) * 0.5)
+			draw_circle(p, 5.0 * k + 1.5, Color(0.70, 0.99, 1.0, 0.60 * k))
+			draw_circle(p, 2.0, Color(1.0, 1.0, 1.0, 0.95 * k))
 		"light":
-			draw_circle(p, 4.5 * k + 1.5, Color(1.0, 0.58, 0.10, 0.85 * k))
-			draw_circle(p, 2.0 * k + 1.0, Color(1.0, 0.94, 0.58, 0.95 * k))
-			draw_line(p, p + dir * 5.0, Color(1.0, 0.82, 0.30, 0.90 * k), 1.5)
+			draw_circle(p, 4.5 * k + 1.5, Color(1.0, 0.62, 0.10, 0.85 * k))
+			draw_circle(p, 2.0 * k + 1.0, Color(1.0, 1.0, 0.72, 0.98 * k))
+			draw_line(p, p + dir * 6.0, Color(1.0, 0.94, 0.52, 0.95 * k), 1.6)
 		_:
 			draw_circle(p, 3.6 * k + 1.2, Color(1.0, 0.68, 0.20, 0.85 * k))
 			draw_circle(p, 1.8 * k + 0.8, Color(1.0, 0.97, 0.72, 0.98 * k))
@@ -220,6 +347,31 @@ func _draw_impact(i: Dictionary) -> void:
 			draw_circle(p + Vector2(4.0, -3.0), r * 0.58, Color(0.55, 0.51, 0.45, 0.36 * k))
 			draw_rect(Rect2(p - Vector2(2.0, 2.0), Vector2(4.0, 4.0)),
 				Color(1.0, 0.95, 0.68, 0.75 * k))
+		"artillery":
+			# Heavy shell: white flash, wide fiery shock ring and a dark crater.
+			var r := (26.0 * (1.0 - k) + 7.0) * power
+			draw_circle(p, r, Color(1.0, 0.34, 0.05, 0.80 * k))
+			draw_circle(p, r * 0.64, Color(1.0, 0.70, 0.18, 0.92 * k))
+			draw_circle(p, r * 0.28, Color(1.0, 0.97, 0.78, 0.98 * k))
+			for ring in 3:
+				draw_arc(p, r * (1.20 + float(ring) * 0.34), 0.0, TAU, 30,
+					Color(1.0, 0.66, 0.24, (0.42 - float(ring) * 0.11) * k), 3.0 - float(ring) * 0.7)
+			for chunk in 4:
+				var ca := TAU * float(chunk) / 4.0 + 0.7
+				draw_circle(p + Vector2(cos(ca), sin(ca) * 0.7) * r * 0.9,
+					r * 0.28, Color(0.22, 0.19, 0.16, 0.42 * k))
+		"plasma":
+			var r := (19.0 * (1.0 - k) + 6.0) * power
+			draw_circle(p, r, Color(1.0, 0.24, 0.04, 0.82 * k))
+			draw_circle(p, r * 0.62, Color(1.0, 0.62, 0.14, 0.94 * k))
+			draw_circle(p, r * 0.30, Color(1.0, 0.98, 0.86, 0.98 * k))
+			for ember in 5:
+				var ea := TAU * float(ember) / 5.0 + float(ember) * 0.5
+				draw_circle(p + Vector2(cos(ea), sin(ea)) * r * 1.25, 2.2 + 1.8 * k,
+					Color(1.0, 0.55, 0.12, 0.55 * k))
+			for halo in 2:
+				draw_arc(p, r * (1.35 + float(halo) * 0.45), 0.0, TAU, 26,
+					Color(1.0, 0.48, 0.10, (0.36 - float(halo) * 0.12) * k), 2.4)
 		"rocket":
 			var r := (14.0 * (1.0 - k) + 6.0) * power
 			draw_circle(p, r, Color(1.0, 0.44, 0.09, 0.78 * k))

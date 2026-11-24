@@ -2,11 +2,13 @@
 """Generate Sandwar's Dune 2000-style spoken radio alerts, locally.
 
 Engine detection, in preference order:
-  1. pico2wave CLI  (deep, measured; `sudo apt install libttspico-utils`)
-  2. espeak-ng CLI  (`sudo apt install espeak-ng`)
-  3. espeak CLI
-  4. flite CLI
-  5. libespeak-ng through ctypes -- this machine has the shared library via
+  1. Piper neural TTS -- a local model in tools/voices (or the path in
+     SANDWAR_PIPER_MODEL). This is the intended production voice.
+  2. pico2wave CLI  (deep, measured; `sudo apt install libttspico-utils`)
+  3. espeak-ng CLI  (`sudo apt install espeak-ng`)
+  4. espeak CLI
+  5. flite CLI
+  6. libespeak-ng through ctypes -- this machine has the shared library via
      speech-dispatcher even though the CLI is absent.
 
 With no engine at all the script prints the exact apt command and renders clean
@@ -38,7 +40,9 @@ except Exception:  # pragma: no cover - numpy is present on the target PC
     np = None
 
 RATE = 22050
-OUT_DIR = Path(__file__).resolve().parent.parent / "assets" / "sfx" / "voice"
+ROOT = Path(__file__).resolve().parent.parent
+OUT_DIR = ROOT / "assets" / "sfx" / "voice"
+DEFAULT_PIPER_MODEL = ROOT / "tools" / "voices" / "en_GB-alan-medium.onnx"
 
 # File name -> spoken line. Keep this order; it is the game's alert order.
 LINES = {
@@ -71,6 +75,15 @@ CHIMES = {
 
 def find_engine():
     """Return (kind, handle) for the best available local TTS engine."""
+    piper_exe = shutil.which("piper")
+    if not piper_exe:
+        local_piper = ROOT / ".tools-venv" / "bin" / "piper"
+        if local_piper.exists():
+            piper_exe = str(local_piper)
+    model = Path(os.environ.get("SANDWAR_PIPER_MODEL", str(DEFAULT_PIPER_MODEL))).expanduser()
+    config = Path(str(model) + ".json")
+    if piper_exe and model.exists() and config.exists():
+        return "piper", (piper_exe, model)
     for name in ("pico2wave", "espeak-ng", "espeak", "flite"):
         path = shutil.which(name)
         if path:
@@ -79,6 +92,23 @@ def find_engine():
     if lib:
         return "espeak-ng-lib", lib
     return None, None
+
+
+def synth_piper(exe: str, model: Path, text: str):
+    """Render one line through a local Piper ONNX voice."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        cmd = [exe, "-m", str(model), "-f", str(tmp_path),
+               "--length-scale", "1.10", "--sentence-silence", "0.05"]
+        subprocess.run(cmd, input=text.encode("utf-8"), check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return read_wav(tmp_path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def synth_cli(kind: str, exe: str, text: str):
@@ -149,6 +179,9 @@ def synth_lib(lib_path: str, text: str):
 
 
 def synth_line(kind: str, handle, text: str):
+    if kind == "piper":
+        samples, rate = synth_piper(handle[0], handle[1], text)
+        return samples, rate, "piper"
     if kind == "espeak-ng-lib":
         return synth_lib(handle, text)
     samples, rate = synth_cli(kind, handle, text)
@@ -312,13 +345,18 @@ def main() -> int:
     voice_label = ""
     if kind:
         engine_label = kind
-        if kind == "espeak-ng-lib":
+        exe_label = handle[0] if isinstance(handle, tuple) else handle
+        if kind == "piper":
+            engine_label = f"piper ({Path(handle[1]).stem})"
+            voice_label = f"voice={Path(handle[1]).stem}"
+        elif kind == "espeak-ng-lib":
             engine_label = "espeak-ng (libespeak-ng.so via ctypes)"
-        print(f"engine: {engine_label}  ->  {handle}")
+        print(f"engine: {engine_label}  ->  {exe_label}")
     else:
         print("engine: none detected")
         print("  install one with:  sudo apt install espeak-ng")
         print("  (or, for pico2wave: sudo apt install libttspico-utils)")
+        print("  (or, for Piper: put an .onnx voice in tools/voices or set SANDWAR_PIPER_MODEL)")
         print("  generating clean radio-chime placeholders for now")
 
     failures = []

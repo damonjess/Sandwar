@@ -51,7 +51,7 @@ func _run() -> void:
 
 	await create_timer(0.8).timeout
 	var head := BuildingArt.head("rocketturret")
-	var head_frames := 0 if head == null else int(head.get_width() / 184)
+	var head_frames := 0 if head == null else int(head.get_width() / 368)
 	print("ROCKET head_frames=", head_frames, " head_ok=", head_frames == 16,
 		" power=", scene.power_out(0), "/", scene.power_used(0),
 		" powered=", turret.powered, " aim=", turret.aim,

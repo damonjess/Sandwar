@@ -701,18 +701,26 @@ class BuildTile:
 		# keeps every build and unit readable without shrinking the icon area.
 		if icon != null and caption != "":
 			var name_fs := GameDefs.fs(10)
-			var band_h := float(name_fs) + 5.0
-			var band := Rect2(2.0, h - band_h - 1.0, w - 4.0, band_h)
+			# Size the plate from real font metrics and reserve a clean 3 px
+			# inside its bottom edge. Queue and cancel badges own the top-right,
+			# so the label keeps this full-width bottom lane without crowding
+			# the tile border on either desktop or the scaled phone UI.
+			var name_ascent := font.get_ascent(name_fs)
+			var name_descent := font.get_descent(name_fs)
+			var name_pad_top := 2.0
+			var name_pad_bottom := 3.0
+			var band_h := name_ascent + name_descent + name_pad_top + name_pad_bottom
+			var band := Rect2(2.0, h - band_h - 2.0, w - 4.0, band_h)
 			draw_rect(band, NAME_PLATE)
 			draw_line(Vector2(band.position.x, band.position.y),
 				Vector2(band.end.x, band.position.y), NAME_RULE, 1.0)
 			var name_col := GameHUD.C_CREAM if available else GameHUD.C_DIM
-			var name_text := GameDefs.fit_text(font, caption, band.size.x - 4.0, name_fs, 1)
-			var name_base := band.position.y + (band_h + font.get_ascent(name_fs) - font.get_descent(name_fs)) * 0.5
-			draw_string(font, Vector2(band.position.x + 2.0, name_base + 1.0), name_text,
-				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 4.0, name_fs, Color(0.0, 0.0, 0.0, 0.95))
-			draw_string(font, Vector2(band.position.x + 2.0, name_base), name_text,
-				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 4.0, name_fs, name_col)
+			var name_text := GameDefs.fit_text(font, caption, band.size.x - 6.0, name_fs, 1)
+			var name_base := band.position.y + name_pad_top + name_ascent
+			draw_string(font, Vector2(band.position.x + 3.0, name_base + 1.0), name_text,
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 6.0, name_fs, Color(0.0, 0.0, 0.0, 0.95))
+			draw_string(font, Vector2(band.position.x + 3.0, name_base), name_text,
+				HORIZONTAL_ALIGNMENT_CENTER, band.size.x - 6.0, name_fs, name_col)
 		if queue_count > 0:
 			var badge := str(queue_count)
 			var badge_fs := GameDefs.fs(13)

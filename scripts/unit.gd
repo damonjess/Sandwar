@@ -45,6 +45,11 @@ var barrel_side := 1.0
 var rocket_salvo_left := 0
 var rocket_salvo_timer := 0.0
 var rocket_salvo_target = null
+## Per-shot share and visual size for the follow-up rocket. The Quad's pair
+## carries full damage each; the Rocket Trooper still splits its old 17.
+var rocket_salvo_share := 0.5
+var rocket_salvo_scale := 0.55
+var rocket_salvo_side := 1.0
 var flash := 0.0
 var bob := 0.0
 var stuck_time := 0.0
@@ -455,7 +460,7 @@ func crushed_by(crusher) -> void:
 func _tick_combat(delta: float) -> void:
 	# Rocket troopers carry two small tubes: the second missile follows the
 	# first, and each carries half the original 17 damage.
-	if weapon == "rocket" and rocket_salvo_left > 0:
+	if _is_rocket_weapon() and rocket_salvo_left > 0:
 		rocket_salvo_timer -= delta
 		if rocket_salvo_timer <= 0.0:
 			var follow = rocket_salvo_target
@@ -466,8 +471,9 @@ func _tick_combat(delta: float) -> void:
 				# the body may still be halfway through its turn.
 				var fdir := Vector2.RIGHT.rotated(facing)
 				var fperp := Vector2(-fdir.y, fdir.x)
-				var fmuzzle := global_position + fdir * UnitArt.muzzle_distance(type_id, radius) + fperp * (2.5 * barrel_side)
-				_launch_rocket(follow, fmuzzle, fdir, 0.5)
+				var salvo_off := 5.5 if type_id == "quad" else 2.5
+				var fmuzzle := global_position + fdir * UnitArt.muzzle_distance(type_id, radius) + fperp * (salvo_off * rocket_salvo_side)
+				_launch_rocket(follow, fmuzzle, fdir, rocket_salvo_share, rocket_salvo_scale)
 				flash = 1.0
 			rocket_salvo_left = 0
 	if attack_target == null or not is_instance_valid(attack_target) or not attack_target.is_alive():
@@ -489,10 +495,10 @@ func _tick_combat(delta: float) -> void:
 	# projectile, so every enemy body and structure along the path is struck.
 	if special == "sonic":
 		_fire_sonic(Vector2.RIGHT.rotated(facing))
-		game.play_sfx("cannon", global_position, -3.0, 0.68)
 		if game.fx != null:
 			game.fx.muzzle(global_position + Vector2.RIGHT.rotated(facing) * UnitArt.muzzle_distance(type_id, radius),
-				facing, "cannon", 1.0)
+				facing, "sonic", 1.0)
+		game.play_sfx("sonic_fire", global_position, -2.0)
 		return
 	var style := "rifle"
 	if weapon == "cannon" or weapon == "demolition":
@@ -508,17 +514,41 @@ func _tick_combat(delta: float) -> void:
 		shot_angle = turret_facing
 	var dir := Vector2.RIGHT.rotated(shot_angle)
 	var perp := Vector2(-dir.y, dir.x)
-	var side_offset := 2.5 if style == "light" else 0.0
+	# The Quad's rockets leave its two top pods; every other hull fires from
+	# the centreline (or the alternating light-gun port).
+	var side_offset := 5.5 if type_id == "quad" else (2.5 if style == "light" else 0.0)
 	var muzzle := global_position + dir * UnitArt.muzzle_distance(type_id, radius) + perp * (side_offset * barrel_side)
-	if weapon == "rocket":
-		_launch_rocket(attack_target, muzzle, dir, 0.5)
+	if _is_rocket_weapon():
+		var share := 1.0 if type_id == "quad" else 0.5
+		var scale := 0.48 if type_id == "quad" else 0.55
+		_launch_rocket(attack_target, muzzle, dir, share, scale)
 		rocket_salvo_left = 1
 		rocket_salvo_timer = 0.12
 		rocket_salvo_target = attack_target
+		rocket_salvo_share = share
+		rocket_salvo_scale = scale
+		rocket_salvo_side = -barrel_side
 	elif weapon == "gas":
 		# Deviator: a single green gas missile. On impact the primary vehicle
 		# target is converted to our house for twelve seconds.
-		_launch_rocket(attack_target, muzzle, dir, 1.0)
+		_launch_rocket(attack_target, muzzle, dir, 1.0, 1.0)
+	elif weapon == "twin_plasma":
+		# Both barrels fire together: 65 total damage split across the pair,
+		# each bolt carrying the full 64 px splash footprint.
+		for side in [-1.0, 1.0]:
+			var port: Vector2 = global_position + dir * UnitArt.muzzle_distance(type_id, radius) + perp * (side * 14.0)
+			var bolt := BallisticScript.new()
+			game.add_child(bolt)
+			bolt.setup(game, team, attack_target, port, dir, damage * 0.5, weapon, "plasma",
+				760.0, 12.0, splash_radius, splash_fraction)
+			# One flash per barrel, so the left/right discharge is unmistakable.
+			game.fx.muzzle(port, shot_angle, "plasma", side)
+	elif weapon == "artillery":
+		var shell := BallisticScript.new()
+		game.add_child(shell)
+		shell.setup(game, team, attack_target, muzzle, dir, damage, weapon, "artillery", 520.0, 3.0,
+			splash_radius, splash_fraction)
+		game.fx.muzzle(muzzle, shot_angle, "cannon", barrel_side)
 	elif style == "cannon":
 		var shell := BallisticScript.new()
 		game.add_child(shell)
@@ -541,17 +571,26 @@ func _tick_combat(delta: float) -> void:
 		sound = "mg_burst"
 	elif style == "cannon":
 		sound = "cannon"
-	if weapon == "rocket":
+	var pitch := 1.0
+	if weapon == "rocket" or weapon == "quad_rocket":
 		sound = "rocket_launch"
 	elif weapon == "gas":
 		sound = "rocket_launch"
-	game.play_sfx(sound, global_position, -4.0)
+	elif weapon == "twin_plasma":
+		sound = "plasma_fire"
+	elif weapon == "artillery":
+		sound = "cannon"
+		pitch = 0.62
+	game.play_sfx(sound, global_position, -4.0, pitch)
 
-func _launch_rocket(target, muzzle: Vector2, dir: Vector2, share := 1.0) -> void:
+func _is_rocket_weapon() -> bool:
+	return weapon == "rocket" or weapon == "quad_rocket"
+
+func _launch_rocket(target, muzzle: Vector2, dir: Vector2, share := 1.0, scale := 0.55) -> void:
 	var rocket := RocketScript.new()
 	game.add_child(rocket)
 	rocket.setup(game, team, target, muzzle, dir, damage * share, weapon,
-		0.0, 0.0, 340.0, 4.0, 0.55, 0.8, special)
+		0.0, 0.0, 340.0, 4.0, scale, 0.8, special)
 	game.fx.muzzle(muzzle, dir.angle(), "rocket", barrel_side)
 
 ## Acoustic shockwave: every enemy whose body intersects the beam line takes
@@ -587,6 +626,16 @@ func _line_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
 func _draw() -> void:
 	if selected:
 		draw_arc(Vector2.ZERO, radius + 6.0, 0.0, TAU, 28, Color(0.55, 1.0, 0.65, 0.95), 2.0)
+	if charm_timer > 0.0:
+		# Deviator control: a pulsing emerald ring makes the converted hull
+		# unmistakable even in a crowded fight, and the sprite itself is tinted.
+		var pulse := 0.55 + 0.45 * sin(anim_clock * 7.0)
+		draw_arc(Vector2.ZERO, radius + 8.0, 0.0, TAU, 30,
+			Color(0.25, 1.0, 0.38, 0.55 + 0.35 * pulse), 2.6)
+		for i in 8:
+			var a := TAU * float(i) / 8.0 + anim_clock * 0.8
+			draw_arc(Vector2.ZERO, radius + 12.0, a, a + 0.24, 5,
+				Color(0.32, 1.0, 0.45, 0.75), 2.0)
 	draw_baked_unit()
 	_draw_exhaust()
 	if hp < max_hp:
@@ -611,19 +660,22 @@ func _draw_exhaust() -> void:
 ## 2D sprite.
 func draw_baked_unit() -> void:
 	var dest := UnitArt.draw_rect(type_id)
+	# Deviator-charmed hulls read green immediately, even before the ring is
+	# noticed, but stay bright enough to recognise their original chassis.
+	var tint := Color(0.74, 1.0, 0.80) if charm_timer > 0.0 else Color.WHITE
 	if type_id == "tank":
 		var hull := UnitArt.sheet("tank")
 		if hull != null:
-			draw_texture_rect_region(hull, dest, UnitArt.frame_region("tank", facing))
+			draw_texture_rect_region(hull, dest, UnitArt.frame_region("tank", facing), tint)
 		var turret := UnitArt.tank_turret()
 		if turret != null:
-			draw_texture_rect_region(turret, dest, UnitArt.tank_turret_region(turret_facing))
+			draw_texture_rect_region(turret, dest, UnitArt.tank_turret_region(turret_facing), tint)
 		return
 	if type_id == "harvester":
 		var fill: float = clampf(float(get("cargo")) / maxf(float(get("capacity")), 1.0), 0.0, 1.0)
 		var harvest_tex := UnitArt.harvester_sheet(fill)
 		if harvest_tex != null:
-			draw_texture_rect_region(harvest_tex, dest, UnitArt.harvester_region(facing))
+			draw_texture_rect_region(harvest_tex, dest, UnitArt.harvester_region(facing), tint)
 		return
 	if UnitArt.is_infantry(type_id):
 		var anim := 0
@@ -633,8 +685,8 @@ func draw_baked_unit() -> void:
 			anim = 1 + int(anim_clock * 7.0) % 2
 		var tex := UnitArt.sheet(type_id)
 		if tex != null:
-			draw_texture_rect_region(tex, dest, UnitArt.frame_region(type_id, facing, anim))
+			draw_texture_rect_region(tex, dest, UnitArt.frame_region(type_id, facing, anim), tint)
 		return
 	var tex := UnitArt.sheet(type_id)
 	if tex != null:
-		draw_texture_rect_region(tex, dest, UnitArt.frame_region(type_id, facing))
+		draw_texture_rect_region(tex, dest, UnitArt.frame_region(type_id, facing), tint)

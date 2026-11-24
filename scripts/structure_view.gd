@@ -14,8 +14,9 @@ extends Node2D
 @export var fps: float = BuildingArt.FPS
 ## Top of the artwork relative to the pad centre, so the health bar clears it.
 @export var art_top: float = -96.0
-## Used by the tiny 1x1 turret structures; scene-backed buildings stay at 1.0.
-@export var visual_scale := 1.0
+## The sheets bake at 2x pixel density; 0.5 keeps every world footprint
+## identical. The 1x1 turrets override this with their tighter scale.
+@export var visual_scale := 0.5
 
 var _housing: Sprite2D
 var _guide: CanvasItem

@@ -31,6 +31,11 @@ var lock_pos := Vector2.ZERO
 var suppression := 0.0
 var scan_timer := 0.0
 var wander_timer := 0.0
+## Subtle per-worm variation keeps two Shai-Hulud from looking like copies.
+var variant := 0
+var art_phase := 0.0
+var ridge_tex: Texture2D
+var maw_tex: Texture2D
 
 ## Only nearby work is felt through the sand, not the whole map.
 const SENSE_TILES := 9.0
@@ -38,9 +43,23 @@ const SENSE_TILES := 9.0
 const ESCAPE_TILES := 5.0
 const WARN_MIN := 7.0
 const WARN_MAX := 9.0
+## Keep the visible body, not just its centre point, clear of cliff walls.
+## The alpha silhouette of ridge.png spans about 193 px at its 205 px draw
+## size; these samples cover that footprint plus a 1.4 tile safety margin.
+const CLIFF_CLEARANCE_TILES := 1.4
+const BODY_HALF_LENGTH := 96.0
+const BODY_HALF_WIDTH := 32.0
+const SURFACE_CLEARANCE_TILES := 1.5
 
 func setup(g, index := 0) -> void:
 	game = g
+	variant = index
+	art_phase = float(index) * 1.73
+	if ridge_tex == null:
+		ridge_tex = load("res://assets/sprites/sandworm/ridge.png")
+	if maw_tex == null:
+		maw_tex = load("res://assets/sprites/sandworm/maw.png")
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	# Start far from the player's opening base and field, and stay under the
 	# sand for a while so the first harvest is never an instant ambush.
 	position = _random_sand_position(22.0, 12.0)
@@ -151,8 +170,12 @@ func _stalk(delta: float) -> void:
 		_abort()
 		return
 	# Stepping onto rock or concrete breaks the lock immediately: retreating
-	# is always a clean save.
+	# is always a clean save. Standing on sand right beside a cliff is also safe;
+	# the ridge must not surface with its mouth or body over the wall.
 	if not _on_sand(target.global_position):
+		_abort()
+		return
+	if not _clear_of_cliffs(target.global_position, SURFACE_CLEARANCE_TILES * float(GameDefs.TILE)):
 		_abort()
 		return
 	# Driving away from the disturbance breaks the trail. This is the mobile-
@@ -199,6 +222,17 @@ func _suppression(delta: float) -> void:
 # ------------------------------------------------------------- surfacing
 
 func _surface() -> void:
+	# Final defensive check: steering normally keeps the ridge clear, but a
+	# target that moved beside a cliff during the warning window must not pull
+	# the eruption plate across the rock face.
+	if not _body_clear_at(global_position, move_dir) \
+			or not _clear_of_cliffs(global_position, SURFACE_CLEARANCE_TILES * float(GameDefs.TILE)):
+		_dig(1.0)
+		return
+	if target != null and is_instance_valid(target) \
+			and not _clear_of_cliffs(target.global_position, SURFACE_CLEARANCE_TILES * float(GameDefs.TILE)):
+		_abort()
+		return
 	state = "surface"
 	surface_time = 0.0
 	if game.fx != null:
@@ -258,8 +292,46 @@ func _relocate() -> void:
 func _on_sand(p: Vector2) -> bool:
 	return game.terrain.is_open_sand(game.terrain.tile_of(p))
 
-## Step only onto open sand. If the direct line is blocked by rock, slide
-## around it rather than ever crossing the plateau.
+## Euclidean distance from a point to the nearest ROCK tile rectangle. A
+## centre-only sand check lets the long ridge art spill over a cliff, so this
+## is used on several points along the body instead.
+func _clear_of_cliffs(p: Vector2, margin := CLIFF_CLEARANCE_TILES * float(GameDefs.TILE)) -> bool:
+	var t := float(GameDefs.TILE)
+	var tile: Vector2i = game.terrain.tile_of(p)
+	var reach := int(ceil(margin / t)) + 1
+	for y in range(tile.y - reach, tile.y + reach + 1):
+		for x in range(tile.x - reach, tile.x + reach + 1):
+			if not game.terrain.in_bounds(x, y):
+				continue
+			if game.terrain.types[y * GameDefs.MAP + x] != GameDefs.ROCK:
+				continue
+			var rect_pos := Vector2(float(x), float(y)) * t
+			var closest := Vector2(
+				clampf(p.x, rect_pos.x, rect_pos.x + t),
+				clampf(p.y, rect_pos.y, rect_pos.y + t))
+			if p.distance_squared_to(closest) < margin * margin:
+				return false
+	return true
+
+## Sample the ridge footprint along its facing direction. This prevents the
+## head or tail sweeping over a plateau during a turn as well as stopping the
+## centre from entering rock.
+func _body_clear_at(p: Vector2, direction: Vector2) -> bool:
+	var d := direction.normalized()
+	if d.length_squared() < 0.01:
+		d = move_dir.normalized()
+	var side := Vector2(-d.y, d.x)
+	for along in [-BODY_HALF_LENGTH, -48.0, 0.0, 48.0, BODY_HALF_LENGTH]:
+		for across in [-BODY_HALF_WIDTH, 0.0, BODY_HALF_WIDTH]:
+			var q: Vector2 = p + d * along + side * across
+			if not _on_sand(q):
+				return false
+			if not _clear_of_cliffs(q):
+				return false
+	return true
+
+## Step only onto open sand with the whole ridge clear of cliffs. If the
+## direct line is blocked, slide around it rather than ever crossing a wall.
 func _move_sand(dir: Vector2, move_speed: float, delta: float) -> void:
 	if dir.length() < 0.01:
 		return
@@ -268,7 +340,7 @@ func _move_sand(dir: Vector2, move_speed: float, delta: float) -> void:
 	for option in options:
 		var d: Vector2 = option.normalized()
 		var p: Vector2 = position + d * step
-		if _on_sand(p):
+		if _body_clear_at(p, d):
 			position = p
 			move_dir = d
 			return
@@ -282,7 +354,7 @@ func _pick_waypoint() -> void:
 		var a: float = game.rng.randf() * TAU
 		var d: float = game.rng.randf_range(3.0, 10.0) * float(GameDefs.TILE)
 		var p: Vector2 = position + Vector2.RIGHT.rotated(a) * d
-		if _on_sand(p):
+		if _body_clear_at(p, (p - position).normalized()):
 			best = p
 			break
 	waypoint = best
@@ -291,12 +363,17 @@ func _pick_waypoint() -> void:
 func _random_sand_position(min_from_base := 16.0, min_from_units := 8.0) -> Vector2:
 	var anchor_tile: Vector2i = game._base_anchor(0)
 	var anchor: Vector2 = game.terrain.tile_center(anchor_tile)
+	# Spawn at least a body length plus the safety margin from every cliff. This
+	# is orientation-independent, so a new ridge cannot emerge halfway over rock.
+	var body_clearance := (BODY_HALF_LENGTH / float(GameDefs.TILE) + CLIFF_CLEARANCE_TILES) * float(GameDefs.TILE)
 	var fallback := position
 	for i in 160:
 		var tile := Vector2i(game.rng.randi_range(1, GameDefs.MAP - 2), game.rng.randi_range(1, GameDefs.MAP - 2))
 		if not game.terrain.is_open_sand(tile):
 			continue
 		var p: Vector2 = game.terrain.tile_center(tile)
+		if not _clear_of_cliffs(p, body_clearance):
+			continue
 		fallback = p
 		if p.distance_to(anchor) < min_from_base * float(GameDefs.TILE):
 			continue
@@ -318,76 +395,319 @@ func _draw() -> void:
 		return
 	_draw_ridge()
 
-func _draw_ridge() -> void:
-	var side := Vector2(-move_dir.y, move_dir.x)
-	# Trailing dust: the tell that something huge is moving under the sand.
-	for i in 5:
-		var phase := fmod(clock * 1.35 + float(i) * 0.21, 1.0)
-		var back := -move_dir * (22.0 + phase * 50.0)
-		var drift := side * sin(clock * 4.2 + float(i) * 1.9) * (4.0 + phase * 8.0)
-		draw_circle(back + drift + Vector2(0.0, 4.0), 4.0 + phase * 10.0,
-			Color(0.80, 0.66, 0.44, (1.0 - phase) * 0.26))
-	var pulse := 0.9 + 0.1 * sin(clock * 2.4)
-	# One long, low dune ridge aligned with travel, with a darker trough on
-	# the lee side and a pale crest catching the sun. The whole shape breathes
-	# and slides, so it reads as sand being pushed up from below.
+func _ridge_shape(offset: float, rx: float, ry: float, front_taper: float,
+		back_taper: float, wobble: float, phase: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in 40:
+		var a := TAU * float(i) / 40.0
+		var x := cos(a)
+		var y := sin(a)
+		var front := maxf(x, 0.0)
+		var back := maxf(-x, 0.0)
+		var width := 1.0 - front_taper * pow(front, 1.55) - back_taper * pow(back, 2.1)
+		width = maxf(width, 0.035)
+		var length := 1.0 + 0.12 * front - 0.05 * back
+		var wob := 1.0 + wobble * sin(a * 4.0 + phase) + wobble * 0.45 * sin(a * 7.0 - 1.6)
+		pts.append(Vector2(offset + x * length * rx, y * width * ry * wob))
+	return pts
+
+func _maw_blob(radius: float, wobble: float, phase: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in 40:
+		var a := TAU * float(i) / 40.0
+		var rr := radius * (1.0 + wobble * sin(a * 5.0 + phase) + wobble * 0.42 * sin(a * 3.0 - phase * 0.7))
+		pts.append(Vector2(cos(a) * rr, sin(a) * rr * 0.84))
+	return pts
+
+func _draw_ridge_sprite() -> void:
 	var angle := move_dir.angle()
-	draw_set_transform(Vector2(0.0, 5.0), angle, Vector2(1.95, 0.62) * pulse)
-	draw_circle(Vector2.ZERO, 22.0, Color(0.44, 0.32, 0.19, 0.45))
-	draw_circle(Vector2.ZERO, 18.0, Color(0.60, 0.45, 0.27, 0.96))
-	draw_set_transform(Vector2(-3.0, -2.0), angle, Vector2(1.55, 0.48) * pulse)
-	draw_circle(Vector2.ZERO, 15.0, Color(0.76, 0.60, 0.39, 0.97))
-	draw_set_transform(Vector2(-7.0, -4.0), angle, Vector2(1.15, 0.34) * pulse)
-	draw_circle(Vector2.ZERO, 12.0, Color(0.88, 0.74, 0.52, 0.95))
+	var pulse := 1.0 + 0.015 * sin(clock * 2.4)
+	var tint := Color(1.0, 1.0, 1.0, 0.98)
+	if variant % 2 == 1:
+		tint = Color(0.90, 0.82, 0.70, 0.98)
+	# The baked/plate art is a long vertical teardrop; turn its pointed end into
+	# the trailing end and let the long axis follow travel.
+	draw_set_transform(Vector2(0.0, 4.0), angle - PI * 0.5, Vector2(pulse, 0.94 * pulse))
+	var size := 205.0
+	draw_texture_rect(ridge_tex, Rect2(Vector2(-size * 0.5, -size * 0.5), Vector2(size, size)), false, tint)
+
+	# Wind-blown grit and the V-shaped wake sit above the plate.
+	draw_set_transform(Vector2.ZERO, angle, Vector2.ONE)
+	for i in 14:
+		var phase := fmod(clock * 1.2 + float(i) * 0.16, 1.0)
+		var p := Vector2(-8.0 - phase * 50.0, -4.0 + sin(float(i) * 2.1 + clock * 2.2) * 12.0)
+		draw_circle(p, 0.9 + phase * 2.0, Color(1.0, 0.90, 0.68, (1.0 - phase) * 0.38))
+	for s in [-1.0, 1.0]:
+		draw_line(Vector2(-20.0, s * 10.0), Vector2(-58.0, s * 25.0),
+			Color(1.0, 0.88, 0.64, 0.16), 1.4, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Slip-face shadow along the trailing edge.
-	draw_set_transform(-move_dir * 14.0, angle, Vector2(1.0, 0.30))
-	draw_circle(Vector2.ZERO, 12.0, Color(0.36, 0.25, 0.14, 0.45))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Ripple rings shed off the crest.
 	for i in 3:
-		var a := clock * 1.6 + float(i) * 2.1
-		var p := side * sin(a) * 22.0 - move_dir * (2.0 + cos(a) * 16.0)
-		draw_arc(p, 16.0 + float(i) * 7.0, a, a + 1.2, 9, Color(0.86, 0.72, 0.50, 0.24), 1.6)
-	# Dark churn right under the crest.
-	draw_circle(-move_dir * 6.0, 7.0, Color(0.38, 0.27, 0.15, 0.52))
-	# Mark the quarry during the warning window so the player knows exactly
-	# which harvester or squad needs to move.
-	if state == "stalk" and _valid_target():
-		var rel: Vector2 = target.global_position - global_position
-		var alert := 0.55 + 0.45 * sin(clock * 6.0)
-		draw_arc(rel, 27.0 + alert * 4.0, 0.0, TAU, 28,
-			Color(1.0, 0.72, 0.18, 0.35 + alert * 0.30), 2.0)
-		draw_circle(rel, 2.5, Color(1.0, 0.84, 0.36, 0.90))
+		draw_arc(Vector2(-4.0, 3.0), 35.0 + float(i) * 10.0, angle - 1.18, angle + 1.18, 18,
+			Color(0.94, 0.79, 0.53, 0.20 - float(i) * 0.04), 1.5, true)
+
+	if state == "stalk":
+		_draw_wormsign_ripples()
+
+## Subtle broken sand ripples replace the old orange target circle and yellow
+## dot. The minimap ping remains the tactical alert; this stays environmental.
+func _draw_wormsign_ripples() -> void:
+	var pulse := 0.5 + 0.5 * sin(clock * 3.2)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.70))
+	for i in 3:
+		var radius := 46.0 + float(i) * 15.0 + pulse * 2.5
+		var start := clock * 0.10 + float(i) * 0.7
+		for segment in 4:
+			var a := start + float(segment) * TAU / 4.0
+			draw_arc(Vector2.ZERO, radius, a, a + 0.52, 12,
+				Color(0.91, 0.76, 0.51, 0.20 - float(i) * 0.042), 1.5, true)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_ridge() -> void:
+	if ridge_tex != null:
+		_draw_ridge_sprite()
+		return
+	var angle := move_dir.angle()
+	var deep := Color(0.40, 0.26, 0.14)
+	var wet := Color(0.57, 0.39, 0.22)
+	var sand := Color(0.79, 0.62, 0.39)
+	var crest := Color(0.94, 0.79, 0.53)
+	var pale := Color(1.0, 0.90, 0.68)
+	if variant % 2 == 1:
+		deep = deep.darkened(0.06)
+		wet = wet.darkened(0.04)
+		sand = sand.darkened(0.03)
+		crest = crest.darkened(0.02)
+	var pulse := 1.0 + 0.018 * sin(clock * 2.4)
+
+	# The wake is a set of shrinking sand waves, not a row of floating discs.
+	draw_set_transform(Vector2(0.0, 5.0), angle, Vector2(pulse, 0.82 * pulse))
+	for h in range(3, -1, -1):
+		var s := 1.0 - float(h) * 0.16
+		var off := -18.0 - float(h) * 21.0
+		var alpha := 0.12 + 0.06 * float(3 - h)
+		draw_colored_polygon(_ridge_shape(off, 43.0 * s, 17.0 * s, 0.82, 0.38, 0.14, 0.7 + float(h)),
+			Color(deep.r, deep.g, deep.b, alpha))
+		draw_colored_polygon(_ridge_shape(off + 1.0, 31.0 * s, 11.0 * s, 0.80, 0.36, 0.10, 1.1 + float(h)),
+			Color(wet.r, wet.g, wet.b, alpha + 0.08))
+
+	# A long teardrop dune: broad shoulders, a pointed nose, layered crest.
+	draw_colored_polygon(_ridge_shape(0.0, 60.0, 26.0, 0.93, 0.18, 0.10, 0.3),
+		Color(deep.r, deep.g, deep.b, 0.34))
+	draw_colored_polygon(_ridge_shape(1.0, 54.0, 22.0, 0.91, 0.24, 0.08, 0.8),
+		Color(wet.r, wet.g, wet.b, 0.94))
+	draw_colored_polygon(_ridge_shape(3.0, 45.0, 17.0, 0.87, 0.30, 0.06, 1.5),
+		Color(sand.r, sand.g, sand.b, 0.98))
+	draw_colored_polygon(_ridge_shape(5.0, 32.0, 11.0, 0.80, 0.36, 0.05, 2.1),
+		Color(crest.r, crest.g, crest.b, 0.94))
+
+	# A bright winding crest, plus the shadowed slip face on the lee side.
+	var crest_line := PackedVector2Array()
+	for i in 12:
+		var t := float(i) / 11.0
+		crest_line.append(Vector2(lerpf(-27.0, 28.0, t), -5.5 - 2.2 * sin(t * PI) + 0.8 * sin(t * 7.0 + art_phase)))
+	draw_polyline(crest_line, Color(1.0, 0.93, 0.72, 0.44), 2.1, true)
+	draw_set_transform(Vector2(-9.0, 7.0), angle, Vector2(0.92, 0.48))
+	draw_circle(Vector2.ZERO, 24.0, Color(0.22, 0.13, 0.06, 0.26))
+
+	# A buried dorsal spine: small plates, not a row of black sails.
+	draw_set_transform(Vector2.ZERO, angle, Vector2.ONE)
+	for i in 5:
+		var x := -14.0 + float(i) * 7.0
+		var ph := 3.0 + 1.5 * sin(float(i) * 1.8 + art_phase)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(x - 3.0, 0.5), Vector2(x, -ph), Vector2(x + 3.0, 0.5)
+		]), Color(deep.r, deep.g, deep.b, 0.46))
+
+	# Wind-blown grit streaming off the crest.
+	draw_set_transform(Vector2.ZERO, angle, Vector2.ONE)
+	for i in 14:
+		var phase := fmod(clock * 1.2 + float(i) * 0.16, 1.0)
+		var p := Vector2(-8.0 - phase * 50.0, -4.0 + sin(float(i) * 2.1 + clock * 2.2) * 12.0)
+		draw_circle(p, 0.9 + phase * 2.0, Color(pale.r, pale.g, pale.b, (1.0 - phase) * 0.40))
+	for s in [-1.0, 1.0]:
+		draw_line(Vector2(-20.0, s * 10.0), Vector2(-58.0, s * 25.0),
+			Color(pale.r, pale.g, pale.b, 0.18), 1.4, true)
+
+	# Broad sand ripples outrun the dune.
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	for i in 3:
+		draw_arc(Vector2(-4.0, 3.0), 35.0 + float(i) * 10.0, angle - 1.18, angle + 1.18, 18,
+			Color(crest.r, crest.g, crest.b, 0.22 - float(i) * 0.045), 1.5, true)
+
+	if state == "stalk":
+		_draw_wormsign_ripples()
+
+func _draw_maw_sprite() -> void:
+	var k := clampf(surface_time / 0.95, 0.0, 1.0)
+	var r := lerpf(17.0, 50.0, k)
+	var pulse := 1.0 + 0.025 * sin(clock * 5.0)
+	var angle := move_dir.angle()
+	# Shockwave belongs to the sand, under the erupting plate.
+	for i in 3:
+		var reach := r + 28.0 + float(i) * 21.0 + surface_time * 32.0
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.74))
+		draw_arc(Vector2.ZERO, reach, 0.0, TAU, 40,
+			Color(0.94, 0.79, 0.50, maxf(0.0, 0.42 - float(i) * 0.12) * (1.0 - k * 0.35)), 3.0, true)
+	# The mouth plate includes the neck and eroded sand collar; rotate its neck
+	# directly behind the direction the worm arrived from.
+	var size := lerpf(105.0, 250.0, k)
+	draw_set_transform(Vector2.ZERO, angle - PI * 0.5, Vector2(pulse, 0.95 * pulse))
+	draw_texture_rect(maw_tex, Rect2(Vector2(-size * 0.5, -size * 0.5), Vector2(size, size)), false,
+		Color(1.0, 1.0, 1.0, 0.99))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Sand thrown clear of the crater.
+	for i in 24:
+		var a := TAU * float(i) / 24.0 + 0.25
+		var phase := fmod(clock * 1.8 + float(i) * 0.11, 1.0)
+		var dir := Vector2(cos(a), sin(a) * 0.78)
+		var d := r + 26.0 + phase * 46.0
+		var p := dir * d
+		var q := dir * (d + 7.0 + phase * 11.0)
+		draw_line(p, q, Color(0.97, 0.84, 0.56, (1.0 - phase) * 0.50), 1.2 + phase * 1.2, true)
+		draw_circle(p, 1.0 + phase * 2.2, Color(0.97, 0.85, 0.59, (1.0 - phase) * 0.50))
 
 func _draw_maw() -> void:
+	if maw_tex != null:
+		_draw_maw_sprite()
+		return
 	var k := clampf(surface_time / 0.95, 0.0, 1.0)
-	var r := lerpf(14.0, 46.0, k)
-	# Concentric sand shockwave racing out across the desert.
+	var r := lerpf(17.0, 50.0, k)
+	var pulse := 1.0 + 0.025 * sin(clock * 5.0)
+	var shudder := sin(clock * 17.0) * 0.014 * k
+	var deep := Color(0.38, 0.24, 0.13)
+	var wet := Color(0.54, 0.36, 0.20)
+	var sand := Color(0.79, 0.61, 0.38)
+	var crest := Color(0.94, 0.78, 0.51)
+	var bone := Color(0.97, 0.89, 0.70)
+	var gum := Color(0.33, 0.10, 0.065)
+	if variant % 2 == 1:
+		deep = deep.darkened(0.05)
+		wet = wet.darkened(0.03)
+		sand = sand.darkened(0.025)
+		crest = crest.darkened(0.015)
+
+	# Shockwave belongs to the sand, so it goes under the body.
 	for i in 3:
-		var reach := r + 16.0 + float(i) * 20.0 + surface_time * 32.0
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.62))
-		draw_arc(Vector2.ZERO, reach, 0.0, TAU, 34,
-			Color(0.88, 0.74, 0.48, maxf(0.0, 0.58 - float(i) * 0.16) * (1.0 - k * 0.45)), 4.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Sand mound heaped around the throat.
-	draw_circle(Vector2.ZERO, r + 17.0, Color(0.50, 0.36, 0.21))
-	draw_circle(Vector2.ZERO, r + 8.0, Color(0.64, 0.48, 0.28))
-	draw_circle(Vector2(0.0, -3.0), r + 3.0, Color(0.74, 0.57, 0.36))
-	# Gaping maw with a pale muscular rim.
-	draw_circle(Vector2.ZERO, r, Color(0.72, 0.57, 0.38))
-	draw_circle(Vector2.ZERO, r - 4.0, Color(0.09, 0.05, 0.035))
-	draw_circle(Vector2.ZERO, r * 0.72, Color(0.22, 0.10, 0.06))
-	draw_circle(Vector2(0.0, r * 0.12), r * 0.34, Color(0.025, 0.015, 0.012))
-	# Ten thick pale teeth curving inward around the rim, all swept the same
-	# way so the maw looks like it is twisting shut.
-	for i in 10:
-		var a := TAU * float(i) / 10.0 + 0.18
+		var reach := r + 28.0 + float(i) * 21.0 + surface_time * 32.0
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.74))
+		draw_arc(Vector2.ZERO, reach, 0.0, TAU, 40,
+			Color(0.94, 0.79, 0.50, maxf(0.0, 0.42 - float(i) * 0.12) * (1.0 - k * 0.35)), 3.0, true)
+
+	# The worm's back rises behind the crater; only its upper arc is visible.
+	draw_set_transform(Vector2(0.0, -r * 0.50), 0.0, Vector2(1.36 * pulse, 0.58))
+	draw_circle(Vector2.ZERO, r + 40.0, Color(deep.r, deep.g, deep.b, 0.82))
+	draw_circle(Vector2(0.0, -4.0), r + 32.0, Color(wet.r, wet.g, wet.b, 0.95))
+	draw_circle(Vector2(0.0, -8.0), r + 24.0, Color(sand.r, sand.g, sand.b, 0.92))
+	for i in 3:
+		draw_arc(Vector2(0.0, -6.0), r + 28.0 - float(i) * 8.0, PI * 0.12, PI * 0.88, 16,
+			Color(deep.r, deep.g, deep.b, 0.20), 3.0, true)
+	for i in 5:
+		var a := PI + 0.46 + (PI - 0.92) * float(i) / 4.0
+		var p := Vector2(cos(a), sin(a) * 0.58) * (r + 29.0)
+		var tangent := Vector2(-sin(a), cos(a) * 0.58)
+		draw_colored_polygon(PackedVector2Array([
+			p - tangent * 4.0, p + tangent * 4.0, p + Vector2(cos(a), sin(a) * 0.58) * 5.0
+		]), Color(deep.r, deep.g, deep.b, 0.50))
+
+	# The crater is a sand collar with a wet, irregular lip, not a brown disc.
+	draw_set_transform(Vector2(0.0, 6.0), 0.0, Vector2(1.0, 0.84))
+	draw_colored_polygon(_maw_blob(r + 31.0, 0.06, 0.4), Color(deep.r, deep.g, deep.b, 0.38))
+	draw_set_transform(Vector2.ZERO, shudder, Vector2(1.0, 0.84))
+	draw_colored_polygon(_maw_blob(r + 31.0, 0.07, 0.4), Color(deep.r, deep.g, deep.b, 0.68))
+	draw_colored_polygon(_maw_blob(r + 24.0, 0.06, 1.2), Color(wet.r, wet.g, wet.b, 0.93))
+	draw_colored_polygon(_maw_blob(r + 16.0, 0.055, 2.1), Color(sand.r, sand.g, sand.b, 0.98))
+	draw_colored_polygon(_maw_blob(r + 9.0, 0.045, 2.8), Color(crest.r, crest.g, crest.b, 0.95))
+
+	# Radial cracks and displaced sand clods around the rim.
+	for i in 14:
+		var a := TAU * float(i) / 14.0 + 0.09 + 0.04 * sin(float(i) * 2.2)
+		var p0 := Vector2(cos(a), sin(a) * 0.84) * (r + 10.0)
+		var p1 := Vector2(cos(a), sin(a) * 0.84) * (r + 27.0 + 3.0 * sin(float(i) * 1.7))
+		draw_line(p0, p1, Color(deep.r, deep.g, deep.b, 0.22), 1.4, true)
+	for i in 24:
+		var a := TAU * float(i) / 24.0 + 0.21
+		if i % 3 == 0:
+			var p := Vector2(cos(a), sin(a) * 0.84) * (r + 13.0 + 5.0 * sin(float(i) * 1.3))
+			draw_colored_polygon(PackedVector2Array([
+				p, p + Vector2(cos(a + 0.12), sin(a + 0.12) * 0.84) * 5.0,
+				p + Vector2(cos(a), sin(a) * 0.84) * 7.0
+			]), Color(crest.r, crest.g, crest.b, 0.72))
+
+	# Fleshy rim and deep throat.
+	draw_circle(Vector2.ZERO, r + 7.0, Color(0.85, 0.67, 0.43))
+	draw_circle(Vector2.ZERO, r + 1.0, Color(0.57, 0.39, 0.22))
+	draw_circle(Vector2.ZERO, r - 3.0, Color(0.31, 0.15, 0.08))
+	draw_circle(Vector2.ZERO, r - 8.0, Color(0.10, 0.035, 0.018))
+	draw_circle(Vector2(0.0, r * 0.08), r * 0.62, Color(0.022, 0.010, 0.006))
+	draw_circle(Vector2(0.0, r * 0.10), r * 0.34, Color(0.008, 0.004, 0.003))
+
+	# Radial muscle folds in the throat, and gum wedges between the fangs.
+	for i in 20:
+		var a := TAU * float(i) / 20.0 + 0.08
+		draw_arc(Vector2.ZERO, r * 0.62, a, a + 0.20, 4,
+			Color(0.40, 0.11, 0.055, 0.58), 2.0, true)
+	for i in 12:
+		var a := TAU * float(i) / 12.0 + 0.31
+		draw_arc(Vector2.ZERO, r * 0.38, a, a + 0.25, 3,
+			Color(0.30, 0.075, 0.040, 0.48), 2.0, true)
+	for i in 18:
+		var a := TAU * float(i) / 18.0 + 0.07
 		var dir := Vector2(cos(a), sin(a))
 		var tangent := Vector2(-sin(a), cos(a))
 		var base := dir * (r + 1.0)
-		var tip := dir * (r - 17.0) + tangent * 5.0
 		draw_colored_polygon(PackedVector2Array([
-			base + tangent * 6.0, base - tangent * 6.0, tip
-		]), Color(0.95, 0.89, 0.72, 0.98))
-		draw_line(base + tangent * 2.0, tip, Color(0.72, 0.62, 0.44, 0.7), 1.0)
+			base + tangent * 5.5, base - tangent * 5.5,
+			dir * (r - 5.0) + tangent * 2.0
+		]), Color(gum.r, gum.g, gum.b, 0.88))
+
+	# Outer fangs: curved, uneven, with gaps where the gum shows through.
+	var bite := clampf((k - 0.78) / 0.22, 0.0, 1.0)
+	for i in 18:
+		var a := TAU * float(i) / 18.0 + 0.07 + 0.035 * sin(float(i) * 2.4 + art_phase)
+		var dir := Vector2(cos(a), sin(a))
+		var tangent := Vector2(-sin(a), cos(a))
+		var base := dir * (r + 2.0)
+		if i == 3 or i == 10 or i == 15:
+			draw_colored_polygon(PackedVector2Array([
+				base + tangent * 7.0, base - tangent * 7.0, dir * (r - 6.0)
+			]), Color(0.28, 0.075, 0.038, 0.90))
+			continue
+		var length := 18.0 + 6.0 * sin(float(i) * 2.1 + art_phase)
+		var width := 4.0 + 1.3 * sin(float(i) * 1.7 + 0.6)
+		if i % 5 == 0:
+			length += 4.5
+			width += 0.8
+		var bend := 4.0 + 2.5 * sin(float(i) * 1.5 + clock * 2.0)
+		var mid := dir * (r - length * 0.46) + tangent * bend
+		var tip := dir * (r - length - bite * 6.0) + tangent * (bend + 3.5)
+		var tooth := bone if i % 3 != 0 else Color(0.82, 0.72, 0.52)
+		draw_colored_polygon(PackedVector2Array([
+			base + tangent * width, base - tangent * width, mid - tangent * width * 0.55, tip
+		]), tooth)
+		draw_line(base + tangent * (width * 0.15), mid, Color(0.48, 0.38, 0.24, 0.50), 1.0, true)
+
+	# Inner saw teeth give the throat a second row and a clear sense of depth.
+	for i in 12:
+		var a := TAU * float(i) / 12.0 + 0.34
+		var dir := Vector2(cos(a), sin(a))
+		var tangent := Vector2(-sin(a), cos(a))
+		var base := dir * (r * 0.72)
+		var tip := dir * (r * 0.45) + tangent * 2.5
+		draw_colored_polygon(PackedVector2Array([
+			base + tangent * 2.6, base - tangent * 2.6, tip
+		]), Color(0.72, 0.62, 0.44, 0.96))
+
+	# Wet highlight on the upper lip.
+	draw_circle(Vector2(-r * 0.23, -r * 0.20), r * 0.14, Color(0.65, 0.31, 0.15, 0.22))
+
+	# Sand thrown out of the crater; reset the squash so the spray is round.
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	for i in 24:
+		var a := TAU * float(i) / 24.0 + 0.25
+		var phase := fmod(clock * 1.8 + float(i) * 0.11, 1.0)
+		var dir := Vector2(cos(a), sin(a) * 0.78)
+		var d := r + 26.0 + phase * 46.0
+		var p := dir * d
+		var q := dir * (d + 7.0 + phase * 11.0)
+		draw_line(p, q, Color(0.97, 0.84, 0.56, (1.0 - phase) * 0.52), 1.2 + phase * 1.2, true)
+		draw_circle(p, 1.0 + phase * 2.2, Color(0.97, 0.85, 0.59, (1.0 - phase) * 0.52))
