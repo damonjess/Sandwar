@@ -32,7 +32,7 @@ func _process(delta: float) -> void:
 		ping["t"] = float(ping["t"]) + delta
 	pings = pings.filter(func(p): return float(p["t"]) < PING_LIFE)
 	redraw_timer += delta
-	var interval := 0.09 if (game == null or not game.has_power(GameDefs.PLAYER)) else 0.2
+	var interval := 0.09 if (game == null or not game.radar_online(GameDefs.PLAYER)) else 0.2
 	if redraw_timer >= interval:
 		redraw_timer = 0.0
 		queue_redraw()
@@ -48,7 +48,7 @@ func _gui_input(event: InputEvent) -> void:
 		pos = event.position
 	if not hit:
 		return
-	if not game.has_power(GameDefs.PLAYER):
+	if not game.radar_online(GameDefs.PLAYER):
 		return
 	var r := map_rect()
 	if r.has_point(pos):
@@ -57,7 +57,7 @@ func _gui_input(event: InputEvent) -> void:
 func _draw() -> void:
 	if game == null or game.terrain == null:
 		return
-	if not game.has_power(GameDefs.PLAYER):
+	if not game.radar_online(GameDefs.PLAYER):
 		_draw_static()
 		return
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.006, 0.010, 0.008))
@@ -147,8 +147,13 @@ func _draw_static() -> void:
 		draw_line(Vector2(0.0, float(sy)), Vector2(size.x, float(sy)), Color(0.0, 0.025, 0.0, 0.40), 1.0)
 	var font := ThemeDB.fallback_font
 	if font != null:
-		draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.5 + 4.0), "NO SIGNAL", HORIZONTAL_ALIGNMENT_CENTER,
-			r.size.x, 12, Color(0.62, 0.72, 0.50, 0.68))
+		var has_dish: bool = game.has_outpost(GameDefs.PLAYER)
+		var line := "LOW POWER" if has_dish else "RADAR OFFLINE"
+		var sub := "RESTORE GRID" if has_dish else "BUILD OUTPOST"
+		draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.5 - 2.0), line,
+			HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 12, Color(0.72, 0.78, 0.52, 0.80))
+		draw_string(font, Vector2(r.position.x, r.position.y + r.size.y * 0.5 + 13.0), sub,
+			HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 11, Color(0.48, 0.58, 0.38, 0.68))
 	var pulse := 0.45 + 0.55 * absf(sin(float(ticks) * 0.004))
 	draw_circle(r.position + Vector2(9.0, 9.0), 2.6, Color(0.68, 0.18, 0.12, pulse))
 	# Power-off state is a bare radar, deliberately quieter than the live screen.

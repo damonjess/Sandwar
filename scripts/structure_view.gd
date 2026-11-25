@@ -35,6 +35,12 @@ func setup(team: int) -> void:
 		_mat = BuildingArt.material(_team)
 	_refresh()
 
+## The actual scaled roof top for this structure, measured from the baked
+## sheet's alpha bounds. Building uses this for the health bar and badges, so
+## 1x1 bunkers and 3x3 yards both get the same snug 10 px clearance.
+func visible_top() -> float:
+	return BuildingArt.visual_top(structure_id, visual_scale)
+
 func set_damage(dmg: float) -> void:
 	var d := clampf(dmg, 0.0, 1.0)
 	if absf(d - _damage) < 0.02:

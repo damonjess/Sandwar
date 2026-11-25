@@ -42,9 +42,16 @@ const CELLS := {
 	# stays 22, so only the visual footprint grows.
 	"devastator": 84,
 	"deviator": 60,
-	# Longer industrial rig with a wide front scoop.
-	"harvester": 70,
+	# Longer industrial rig with a wide dozer blade; 1.31x the tank cell so
+	# the baked silhouette reads at the required 1.25-1.35x scale.
+	"harvester": 84,
+	# Mobile base rig: bulkier than a Devastator and deliberately slow-looking.
+	"mcv": 88,
 	"carryall": 96,
+	# CHOAM frigate and the Atreides ornithopter are baked at a larger visual
+	# footprint than their gameplay radius; both are airborne set pieces.
+	"frigate": 150,
+	"ornithopter": 82,
 }
 
 const INFANTRY_IDS := ["infantry", "rocket", "fremen", "sardaukar", "saboteur"]
@@ -142,9 +149,13 @@ static func tank_turret_region(facing: float) -> Rect2:
 	var px := cell("tank") * float(SCALE)
 	return Rect2(float(direction_index(facing, VEHICLE_FRAMES)) * px, 0.0, px, px)
 
-static func harvester_region(facing: float) -> Rect2:
+## Harvester sheets hold two pose rows: row 0 driving, row 1 harvesting with
+## the dozer blade dropped into the ore. Live dust, exhaust and spice spray in
+## Harvester._process supply the continuous motion between poses.
+static func harvester_region(facing: float, harvesting := false) -> Rect2:
 	var px := cell("harvester") * float(SCALE)
-	return Rect2(float(direction_index(facing, VEHICLE_FRAMES)) * px, 0.0, px, px)
+	var row := 1.0 if harvesting else 0.0
+	return Rect2(float(direction_index(facing, VEHICLE_FRAMES)) * px, row * px, px, px)
 
 static func draw_rect(id: String) -> Rect2:
 	var c := cell(id)
@@ -169,6 +180,10 @@ static func muzzle_distance(id: String, radius: float) -> float:
 			return radius * 1.46
 		"trike", "raider_trike", "quad":
 			return radius * 1.42
+		"ornithopter":
+			return radius * 1.55
+		"frigate":
+			return radius * 1.2
 	return radius * 1.2
 
 static func is_infantry(id: String) -> bool:

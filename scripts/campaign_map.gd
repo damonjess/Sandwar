@@ -78,6 +78,9 @@ func _ready() -> void:
 		_show_victory()
 	_update_deploy()
 	set_process(true)
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio != null and audio.has_method("play_menu_music"):
+		audio.call("play_menu_music")
 
 func _build_ui() -> void:
 	deploy_button = TouchButton.new()

@@ -124,7 +124,7 @@ func _apply_damage(victim, share: float) -> void:
 	var target_class := "building"
 	if victim.has_method("damage_class"):
 		target_class = victim.damage_class()
-	victim.take_damage(damage * share * GameDefs.damage_multiplier(weapon, target_class))
+	victim.take_damage(damage * share * GameDefs.damage_multiplier(weapon, target_class), weapon)
 
 func _draw() -> void:
 	var s := visual_scale

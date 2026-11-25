@@ -283,89 +283,72 @@ def build_factory(damaged: bool):
         box((0.20, 0.10, 0.12), (side * 1.08, 0.52, 0.58), MATS["steel_light"],
             bevel=0.006)
 
-    # Low ribbed barrel vault. A continuous steel cap underneath the overlapping
-    # plates closes every seam, so no sky shows through the roof.
-    box((2.28, 1.52, 0.12), (0.0, -0.06, 1.42), MATS["steel"], bevel=0.008)
-    box((2.34, 1.44, 0.15), (0.0, -0.06, 1.56), MATS["steel"], bevel=0.010)
-    box((1.92, 1.16, 0.14), (0.0, -0.06, 1.68), MATS["gunmetal"], bevel=0.008)
-    for i in range(-2, 3):
-        t = i / 2.0
-        y = t * 0.55
-        z = 1.55 + (1.0 - t * t) * 0.28
-        panel_mat = MATS["steel"] if i % 2 else MATS["gunmetal"]
-        box((2.34, 0.62, 0.11), (0.0, y, z), panel_mat,
-            rot=(t * math.radians(-30.0), 0.0, 0.0), bevel=0.010)
-        box((2.38, 0.035, 0.035), (0.0, y - 0.30, z + 0.03), MATS["steel_light"],
-            bevel=0.002)
-    for x in (-1.16, -0.87, -0.58, -0.29, 0.0, 0.29, 0.58, 0.87, 1.16):
-        for i in range(-2, 3):
-            t = i / 2.0
-            y = t * 0.55
-            z = 1.55 + (1.0 - t * t) * 0.28
-            box((0.045, 0.58, 0.035), (x, y, z + 0.068), MATS["steel"],
-                rot=(t * math.radians(-30.0), 0.0, 0.0), bevel=0.002)
-        bolt((x, -0.58, 1.50), MATS["steel_light"], 0.012, 0.016)
-        bolt((x, 0.58, 1.50), MATS["steel_light"], 0.012, 0.016)
-    box((2.38, 0.18, 0.15), (0.0, 0.0, 1.86), MATS["gunmetal"], bevel=0.010)
-    box((2.16, 0.055, 0.040), (0.0, 0.0, 1.94), MATS["trim"], bevel=0.003)
+    # Corrugated Quonset hangar: a real half-round steel arch whose barrel
+    # runs left-right across the sheet, so the long ribbed slope and the bay
+    # door face the camera exactly as in the reference art.
+    box((2.30, 1.50, 0.10), (0.0, -0.11, 1.39), MATS["steel"], bevel=0.008)
+    cyl(0.78, 2.12, (0.0, -0.06, 1.34), MATS["steel_light"], axis="X", verts=44, smooth=True)
+    for x in (-1.00, 1.00):
+        torus(0.795, 0.042, (x, -0.06, 1.34), MATS["steel"], axis="X", segments=40)
+    # Deep corrugation rings around the barrel, alternating steel tones.
+    for i in range(11):
+        x = -0.90 + i * 0.18
+        torus(0.795, 0.022, (x, -0.06, 1.34),
+              MATS["gunmetal"] if i % 2 else MATS["steel_light"], axis="X", segments=38)
+    # A few longitudinal panel seams and rivet rows follow the arch; keeping
+    # them sparse lets the corrugation, not a wire grid, carry the read.
+    for k in range(5):
+        a = math.radians(30.0 + k * 30.0)
+        y = math.cos(a) * 0.785
+        z = 1.34 + math.sin(a) * 0.785
+        box((2.08, 0.026, 0.034), (0.0, y - 0.06, z), MATS["steel"], bevel=0.0)
+        for j in range(4):
+            bolt((-0.78 + j * 0.52, y - 0.06, z + 0.018), MATS["steel"], 0.010, 0.009, axis="Y")
+    box((2.10, 0.09, 0.040), (0.0, -0.06, 2.125), MATS["trim"], bevel=0.002)
+    # Low roof vents sit on the visible front slope, clear of the crown seam.
+    for x in (-0.48, 0.48):
+        box((0.28, 0.22, 0.11), (x, 0.48, 1.94), MATS["grill"], bevel=0.004)
+        box((0.20, 0.15, 0.04), (x, 0.48, 2.00), MATS["steel_light"], bevel=0.003)
+    # Front bay: a wide dark recessed doorway with a segmented roller shutter,
+    # set into the long ribbed side of the hangar.
+    box((1.50, 0.055, 0.98), (0.0, 0.78, 0.90), MATS["black"], bevel=0.004)
     for side in (-1.0, 1.0):
-        box((0.10, 1.50, 0.20), (side * 1.18, -0.06, 1.50), MATS["steel"], bevel=0.006)
-        # Corner columns visibly carry the roof down into the bay frame.
-        box((0.16, 0.16, 0.98), (side * 1.08, 0.70, 0.92), MATS["steel"], bevel=0.006)
-        box((0.20, 0.24, 0.14), (side * 1.08, 0.70, 1.43), MATS["gunmetal"], bevel=0.006)
-        for z in (0.58, 0.86, 1.14):
-            bolt((side * 1.07, 0.80, z), MATS["steel_light"], 0.012, 0.014)
-    # Front eave closes the roof-to-wall joint and carries the house stripe.
-    box((2.42, 0.14, 0.22), (0.0, 0.74, 1.42), MATS["steel"], bevel=0.008)
-    box((2.10, 0.04, 0.055), (0.0, 0.82, 1.44), MATS["trim"], bevel=0.003)
-    box((1.62, 0.05, 0.05), (0.0, 0.86, 1.34), MATS["trim"], bevel=0.003)
-
-    # Roof plant and exhaust stacks, each seated in a raised steel curb.
-    for x, y in ((-0.72, -0.36), (0.62, -0.50)):
-        box((0.34, 0.30, 0.22), (x, y, 1.76), MATS["steel"], bevel=0.008)
-        box((0.20, 0.16, 0.05), (x, y, 1.88), MATS["trim"], bevel=0.003)
-        cyl(0.055, 0.44, (x, y, 2.06), MATS["rust"], verts=10)
-        cyl(0.080, 0.07, (x, y, 2.28), MATS["black"], verts=10)
-    box((0.34, 0.28, 0.12), (0.92, -0.42, 1.70), MATS["grill"], bevel=0.004)
-    box((0.22, 0.16, 0.065), (0.92, -0.42, 1.78), MATS["steel_light"], bevel=0.004)
-    cyl(0.025, 0.035, (0.90, -0.42, 1.83), MATS["amber"], verts=8)
-
-    # Recessed roll-out bay with a worn hazard frame and segmented shutter.
-    box((1.82, 0.15, 1.06), (0.0, 0.80, 0.70), MATS["steel"], bevel=0.010)
-    box((1.52, 0.055, 0.86), (0.0, 0.90, 0.66), MATS["black"], bevel=0.004)
-    for i in range(7):
-        box((1.38, 0.025, 0.075), (0.0, 0.932, 0.29 + i * 0.115),
-            MATS["grill"], bevel=0.002)
+        box((0.16, 0.12, 1.04), (side * 0.83, 0.79, 0.90), MATS["steel"], bevel=0.006)
+        box((0.07, 0.035, 0.90), (side * 0.76, 0.825, 0.88), MATS["trim"], bevel=0.002)
+        box((0.14, 0.14, 0.12), (side * 0.92, 0.80, 0.40), MATS["gunmetal"], bevel=0.003)
+        bolt((side * 0.83, 0.855, 1.33), MATS["steel_light"], 0.015, 0.016, axis="Y")
+    for i in range(9):
+        box((1.36, 0.02, 0.045), (0.0, 0.812, 0.50 + i * 0.094),
+            MATS["grill"] if i % 3 else MATS["steel"], bevel=0.001)
+    box((1.50, 0.06, 0.08), (0.0, 0.812, 1.38), MATS["steel_light"], bevel=0.002)
+    # Worn hazard threshold under the shutter.
+    box((1.64, 0.12, 0.10), (0.0, 0.835, 0.415), MATS["yellow"], bevel=0.003)
+    for i in range(8):
+        box((0.10, 0.13, 0.14), (-0.68 + i * 0.19, 0.84, 0.415), MATS["black"],
+            rot=(0.0, 0.0, math.radians(24.0)), bevel=0.0)
     for side in (-1.0, 1.0):
-        box((0.12, 0.16, 1.08), (side * 0.87, 0.88, 0.70), MATS["yellow"], bevel=0.004)
-        for i in range(5):
-            box((0.065, 0.175, 0.095), (side * 0.87, 0.93, 0.28 + i * 0.20),
-                MATS["black"], rot=(0.0, 0.0, side * math.radians(18.0)), bevel=0.0)
-        box((0.075, 0.06, 0.76), (side * 0.74, 0.95, 0.68), MATS["trim"], bevel=0.003)
-        box((0.16, 0.24, 0.05), (side * 0.72, 0.94, 0.42), MATS["grill"], bevel=0.003)
+        box((0.16, 0.10, 0.08), (side * 0.95, 0.81, 1.24), MATS["steel_light"], bevel=0.003)
+        cyl(0.045, 0.035, (side * 0.95, 0.865, 1.24), MATS["amber"], axis="Y", verts=10)
+    # Warm sandstone apron in front of the bay, inside the 3x3 footprint.
+    box((2.44, 0.56, 0.10), (0.0, 1.10, 0.315), MATS["pad_light"], bevel=0.012)
+    for side in (-1.0, 1.0):
+        box((0.10, 0.22, 0.05), (side * 1.07, 1.14, 0.375), MATS["rust"], bevel=0.002)
+
     # Raised steel pilasters break up the assembly hall face.
     for side in (-1.0, 1.0):
         box((0.16, 0.10, 0.86), (side * 1.00, 0.82, 0.74), MATS["steel"], bevel=0.006)
         for i in range(3):
-            bolt((side * 1.00, 0.88, 0.42 + i * 0.26), MATS["steel_light"], 0.012, 0.014)
-    box((1.80, 0.17, 0.13), (0.0, 0.88, 1.20), MATS["yellow"], bevel=0.005)
-    for i in range(8):
-        box((0.13, 0.18, 0.085), (-0.70 + i * 0.20, 0.91, 1.21),
-            MATS["black"], rot=(0.0, 0.0, math.radians(24.0)), bevel=0.0)
-    box((1.86, 0.06, 0.055), (0.0, 0.98, 1.29), MATS["trim"], bevel=0.003)
-    box((1.60, 0.05, 0.055), (0.0, 0.90, 1.06), MATS["trim"], bevel=0.003)
+            bolt((side * 1.00, 0.875, 0.42 + i * 0.26), MATS["steel_light"], 0.012, 0.014)
     # Steel panel seams break up the blank assembly-hall face.
     for side in (-1.0, 1.0):
-        for y in (0.56, 0.66):
-            box((0.035, 0.025, 0.42), (side * 0.96, 0.735, 0.98),
+        for y in (0.64, 0.70):
+            box((0.035, 0.025, 0.42), (side * 0.96, 0.78, 0.98),
                 MATS["gunmetal"], bevel=0.002)
-        box((0.12, 0.025, 0.08), (side * 0.96, 0.742, 1.14), MATS["steel_light"], bevel=0.002)
-    box((1.62, 0.20, 0.03), (0.0, 0.98, 0.42), MATS["grill"], bevel=0.003)
+        box((0.12, 0.025, 0.08), (side * 0.96, 0.787, 1.14), MATS["steel_light"], bevel=0.002)
+    box((1.62, 0.10, 0.03), (0.0, 0.79, 0.40), MATS["grill"], bevel=0.003)
 
-    # Amber work lamps, not the old glowing cyan eyes.
+    # Amber work lamps flank the bay, not the old glowing cyan eyes.
     for side in (-1.0, 1.0):
-        cyl(0.050, 0.038, (side * 0.50, 0.96, 1.10), MATS["amber"], verts=10)
-        box((0.11, 0.11, 0.06), (side * 0.50, 0.98, 1.10), MATS["steel_light"], bevel=0.004)
         for y in (-0.48, 0.26):
             box((0.08, 0.06, 0.30), (side * 1.30, y, 0.62), MATS["trim"], bevel=0.002)
 
@@ -389,6 +372,515 @@ def build_factory(damaged: bool):
         box((0.68, 0.38, 0.02), (0.48, 0.50, 1.43), MATS["scorch"], bevel=0.0)
         box((0.28, 0.12, 0.16), (0.60, 0.65, 1.46), MATS["rust"],
             rot=(0.32, 0.18, 0.55), bevel=0.006)
+    return anims
+
+def build_silo(damaged: bool):
+    mats = MATS
+    add_foundation(1, damaged)
+    box((0.94, 0.94, 0.14), (0.0, 0.0, 0.25), mats["pad_light"], bevel=0.010)
+    # Heavy circular vault, banded like a pressure vessel. This is deliberately
+    # narrower than the 1x1 pad so it does not bleed into neighbouring tiles.
+    cyl(0.405, 0.82, (0.0, 0.0, 0.72), mats["armor"], verts=32, bevel=0.010)
+    cyl(0.428, 0.055, (0.0, 0.0, 0.36), mats["steel_light"], verts=32, bevel=0.004)
+    cyl(0.428, 0.055, (0.0, 0.0, 1.05), mats["steel_light"], verts=32, bevel=0.004)
+    cyl(0.412, 0.045, (0.0, 0.0, 0.74), mats["steel"], verts=32, bevel=0.003)
+    for i in range(10):
+        a = math.tau * i / 10.0
+        box((0.055, 0.022, 0.50), (math.cos(a) * 0.408, math.sin(a) * 0.408, 0.72),
+            mats["steel_light"], rot=(0.0, 0.0, a), bevel=0.002)
+        bolt((math.cos(a) * 0.438, math.sin(a) * 0.438, 1.05), mats["steel"],
+             axis="Y" if abs(math.sin(a)) > abs(math.cos(a)) else "X")
+    # Domed cap with a bolted hatch ring and a live orange spice sight glass.
+    sphere(0.405, (0.0, 0.0, 1.12), mats["armor_light"], scale=(1.0, 1.0, 0.34))
+    torus(0.325, 0.028, (0.0, 0.0, 1.16), mats["steel"], axis="Z", segments=30)
+    cyl(0.255, 0.075, (0.0, 0.0, 1.22), mats["gunmetal"], verts=24, bevel=0.004)
+    cyl(0.195, 0.045, (0.0, 0.0, 1.265), mats["black"], verts=24, bevel=0.002)
+    sphere(0.175, (0.0, 0.0, 1.285), mats["spice"], scale=(1.0, 1.0, 0.35))
+    for i in range(4):
+        a = math.tau * i / 4.0 + 0.4
+        box((0.18, 0.05, 0.05), (math.cos(a) * 0.18, math.sin(a) * 0.18, 1.32),
+            mats["steel_light"], rot=(0.0, 0.0, a), bevel=0.002)
+    # South-facing inspection gauge: three lit bands read as empty, half and
+    # full without requiring a separate animated sheet.
+    box((0.30, 0.045, 0.46), (0.0, 0.405, 0.76), mats["black"], bevel=0.006)
+    for i in range(3):
+        band = mats["spice_glow"] if i < 2 else mats["grill"]
+        box((0.22, 0.018, 0.075), (0.0, 0.432, 0.60 + i * 0.13), band, bevel=0.003)
+    box((0.34, 0.022, 0.035), (0.0, 0.438, 1.01), mats["trim"], bevel=0.002)
+    # Side pipework, vents and a small pressure wheel.
+    for side in (-1.0, 1.0):
+        pipe((side * 0.40, -0.08, 0.40), (side * 0.40, -0.08, 0.98), 0.028,
+             mats["rust"])
+        louver_bank((side * 0.415, 0.03, 0.82), 0.12, 0.26, 4,
+                    mats["steel_light"], mats["black"])
+    torus(0.085, 0.018, (0.0, 0.424, 0.46), mats["steel_light"], axis="Y", segments=18)
+    cyl(0.045, 0.035, (0.0, 0.44, 0.46), mats["amber"], axis="Y", verts=12)
+    anims = []
+    if damaged:
+        box((0.30, 0.20, 0.02), (0.10, 0.28, 1.13), mats["scorch"], bevel=0.0)
+        box((0.10, 0.06, 0.10), (-0.16, 0.32, 1.16), mats["rust"],
+            rot=(0.3, 0.2, 0.5), bevel=0.005)
+        anims.append(fire_and_scorch(0.0, 0.35, 0.30))
+    else:
+        anims.append({"obj": cyl(0.024, 0.022, (0.0, 0.44, 1.10), mats["amber"],
+                                  axis="Y", verts=8, bevel=0.0), "kind": "lamp"})
+    return anims
+
+
+def build_outpost(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(2, damaged)
+    box((1.80, 1.76, 0.18), (0.0, 0.0, 0.33), mats["pad_light"], bevel=0.016)
+    # Low armoured comms bunker, with the dish mounted high enough to read over
+    # the roof rather than being lost in the silhouette.
+    box((1.56, 1.42, 0.66), (0.0, -0.04, 0.72), mats["armor"], bevel=0.018)
+    box((1.66, 1.52, 0.12), (0.0, -0.04, 1.08), mats["steel"], bevel=0.008)
+    box((1.20, 1.06, 0.24), (0.0, -0.08, 1.22), mats["armor_light"], bevel=0.014)
+    for side in (-1.0, 1.0):
+        box((0.18, 1.50, 0.62), (side * 0.82, -0.04, 0.70), mats["steel"], bevel=0.010)
+        box((0.08, 1.28, 0.08), (side * 0.90, -0.04, 0.95), mats["trim"], bevel=0.003)
+        for y in (-0.48, 0.0, 0.48):
+            bolt((side * 0.86, y, 0.44), mats["steel_light"], 0.012, 0.015)
+    # Recessed operations room windows and a heavy blast door on the south face.
+    for x in (-0.38, 0.0, 0.38):
+        add_window(x, 0.70, 0.82, 0.26, mats["cyan"])
+    box((0.48, 0.08, 0.42), (0.0, 0.75, 0.52), mats["gunmetal"], bevel=0.006)
+    box((0.34, 0.025, 0.30), (0.0, 0.80, 0.51), mats["black"], bevel=0.002)
+    box((1.20, 0.04, 0.055), (0.0, 0.77, 1.02), mats["trim"], bevel=0.003)
+    box((0.32, 0.04, 0.12), (-0.48, 0.77, 1.14), mats["trim"], bevel=0.003)
+    # Roof plant, cable drums and a fixed antenna mast.
+    louver_bank((0.46, -0.52, 1.26), 0.30, 0.16, 4, mats["steel_light"], mats["black"])
+    for x in (-0.44, 0.44):
+        cyl(0.10, 0.10, (x, -0.44, 1.24), mats["steel"], axis="Y", verts=14, bevel=0.004)
+        pipe((x, -0.44, 1.18), (x, -0.44, 1.40), 0.018, mats["steel_light"])
+    box((0.26, 0.22, 0.18), (-0.54, 0.42, 1.30), mats["gunmetal"], bevel=0.006)
+    cyl(0.016, 0.58, (0.64, 0.40, 1.56), mats["steel_light"], verts=8, bevel=0.001)
+    box((0.28, 0.018, 0.018), (0.64, 0.40, 1.74), mats["rust"], bevel=0.001)
+    # Rotating radar dish. The pivot is a real empty so the baked four-frame
+    # strip shows the dish sweeping a full circle.
+    pivot = bpy.data.objects.new("RadarPivot", None)
+    pivot.location = (0.10, -0.18, 1.46)
+    link(pivot)
+    pivot["sandwar_model"] = True
+    cyl(0.10, 0.10, (0.10, -0.18, 1.38), mats["steel_light"], verts=14, bevel=0.004)
+    cyl(0.035, 0.30, (0.10, -0.18, 1.56), mats["steel"], verts=10, bevel=0.002)
+    dish = cone(0.36, 0.055, 0.16, (0.10, -0.18, 1.56), mats["armor_light"],
+                verts=24, bevel=0.004)
+    dish.rotation_euler.x = math.radians(62.0)
+    dish.parent = pivot
+    dish.matrix_parent_inverse = pivot.matrix_world.inverted()
+    feed = cyl(0.020, 0.32, (0.10, -0.28, 1.66), mats["steel"], verts=8, bevel=0.001)
+    feed.rotation_euler.x = math.radians(62.0)
+    feed.parent = pivot
+    feed.matrix_parent_inverse = pivot.matrix_world.inverted()
+    tip = cyl(0.045, 0.035, (0.10, -0.33, 1.80), mats["amber"], verts=10, bevel=0.002)
+    tip.parent = pivot
+    tip.matrix_parent_inverse = pivot.matrix_world.inverted()
+    anims.append({"obj": pivot, "kind": "radar"})
+    if damaged:
+        box((0.30, 0.26, 0.02), (0.28, -0.28, 1.10), mats["scorch"], bevel=0.0)
+        box((0.18, 0.12, 0.10), (-0.30, 0.38, 1.16), mats["rust"],
+            rot=(0.3, 0.2, 0.4), bevel=0.006)
+        anims.append(fire_and_scorch(-0.42, 0.48, 0.45))
+    else:
+        anims.append({"obj": cyl(0.026, 0.024, (0.0, 0.84, 1.10), mats["amber"],
+                                  axis="Y", verts=8, bevel=0.0), "kind": "lamp"})
+    return anims
+
+
+def build_heavy_factory(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(3, damaged)
+    box((2.82, 2.54, 0.20), (0.0, 0.0, 0.36), mats["pad_light"], bevel=0.020)
+    # Wide, low armoured foundry hall. The front bay is deliberately larger and
+    # darker than the Light Factory's so the two buildings read as a pair.
+    box((2.62, 2.14, 1.34), (0.0, -0.10, 1.02), mats["armor"], bevel=0.024)
+    box((2.76, 2.28, 0.16), (0.0, -0.10, 1.72), mats["steel"], bevel=0.012)
+    box((2.52, 2.12, 0.16), (0.0, -0.10, 1.90), mats["gunmetal"], bevel=0.010)
+    box((2.16, 1.88, 0.14), (0.0, -0.10, 2.04), mats["steel"], bevel=0.010)
+    for side in (-1.0, 1.0):
+        box((0.22, 2.18, 1.20), (side * 1.30, -0.10, 1.04), mats["pad_light"], bevel=0.014)
+        box((0.10, 2.02, 0.58), (side * 1.42, -0.10, 0.92), mats["steel"], bevel=0.006)
+        for y in (-0.78, -0.36, 0.08, 0.52):
+            box((0.18, 0.16, 0.88), (side * 1.22, y, 1.02), mats["steel_light"], bevel=0.008)
+            bolt((side * 1.32, y, 0.58), mats["steel"], 0.014, 0.018)
+            bolt((side * 1.32, y, 1.44), mats["steel"], 0.014, 0.018)
+        louver_bank((side * 1.40, 0.54, 1.36), 0.38, 0.28, 5,
+                    mats["steel_light"], mats["black"])
+    # Heavy roof gantry rails and a travelling cross-beam over the assembly bay.
+    for side in (-1.0, 1.0):
+        box((0.16, 2.24, 0.16), (side * 0.92, -0.12, 2.22), mats["steel_light"], bevel=0.006)
+        for y in (-0.96, -0.28, 0.40, 1.02):
+            box((0.30, 0.12, 0.20), (side * 0.92, y, 2.12), mats["steel"], bevel=0.005)
+            bolt((side * 0.92, y, 2.26), mats["steel"], 0.014, 0.018)
+    box((2.30, 0.20, 0.20), (0.0, 0.28, 2.24), mats["gunmetal"], bevel=0.010)
+    box((0.34, 0.24, 0.30), (0.12, 0.28, 2.34), mats["yellow"], bevel=0.008)
+    box((0.20, 0.16, 0.16), (0.12, 0.28, 2.51), mats["steel"], bevel=0.006)
+    pipe((0.12, 0.28, 2.38), (0.12, 0.28, 1.92), 0.014, mats["black"])
+    cyl(0.09, 0.14, (0.12, 0.28, 1.82), mats["steel_light"], verts=14, bevel=0.004)
+    # Massive front blast bay, with side pylons and a hazard-striped lintel.
+    box((2.08, 0.16, 1.44), (0.0, 0.98, 0.92), mats["steel"], bevel=0.012)
+    box((1.78, 0.08, 1.22), (0.0, 1.08, 0.88), mats["black"], bevel=0.005)
+    for i in range(8):
+        box((1.58, 0.026, 0.075), (0.0, 1.13, 0.34 + i * 0.148), mats["grill"], bevel=0.001)
+    for side in (-1.0, 1.0):
+        box((0.18, 0.18, 1.46), (side * 0.94, 1.06, 0.90), mats["yellow"], bevel=0.005)
+        for i in range(6):
+            box((0.09, 0.19, 0.10), (side * 0.94, 1.14, 0.30 + i * 0.21),
+                mats["black"], rot=(0.0, 0.0, side * math.radians(20.0)), bevel=0.0)
+    box((2.08, 0.22, 0.16), (0.0, 1.06, 1.66), mats["yellow"], bevel=0.006)
+    for i in range(9):
+        box((0.12, 0.24, 0.09), (-0.82 + i * 0.205, 1.10, 1.66), mats["black"],
+            rot=(0.0, 0.0, math.radians(26.0)), bevel=0.0)
+    box((2.20, 0.08, 0.06), (0.0, 1.17, 1.78), mats["trim"], bevel=0.003)
+    box((1.72, 0.06, 0.08), (0.0, 1.10, 0.22), mats["trim"], bevel=0.003)
+    # Rear engine house with four tall stacks and a heat exchanger.
+    box((1.76, 0.32, 1.12), (0.0, -1.28, 0.94), mats["steel"], bevel=0.014)
+    for x in (-0.66, -0.24, 0.24, 0.66):
+        box((0.22, 0.22, 0.16), (x, -1.34, 1.46), mats["gunmetal"], bevel=0.006)
+        cyl(0.075, 0.70, (x, -1.34, 1.82), mats["rust"], verts=14)
+        cyl(0.095, 0.08, (x, -1.34, 2.18), mats["black"], verts=12)
+    box((1.30, 0.18, 0.12), (0.0, -1.44, 0.38), mats["grill"], bevel=0.004)
+    for x in (-1.02, 1.02):
+        cyl(0.20, 0.72, (x, -1.16, 0.70), mats["steel_light"], axis="Y", verts=18, bevel=0.008)
+        pipe((x, -1.16, 0.70), (x, -1.16, 1.34), 0.035, mats["rust"])
+    box((2.42, 0.10, 0.06), (0.0, -1.30, 1.58), mats["trim"], bevel=0.003)
+    box((1.44, 0.05, 0.055), (0.0, 1.18, 2.12), mats["trim"], bevel=0.003)
+    # Gantry warning lamps and roof vents.
+    for x in (-0.72, 0.72):
+        cyl(0.045, 0.035, (x, 1.04, 2.02), mats["amber"], verts=10)
+        box((0.30, 0.26, 0.06), (x, -0.56, 2.12), mats["grill"], bevel=0.003)
+    if damaged:
+        box((0.76, 0.54, 0.02), (0.38, 0.40, 2.12), mats["scorch"], bevel=0.0)
+        box((0.34, 0.20, 0.14), (-0.54, 0.62, 2.15), mats["rust"],
+            rot=(0.3, 0.2, 0.5), bevel=0.008)
+        anims.append(fire_and_scorch(-0.52, 0.70, 0.85))
+    else:
+        anims.append({"obj": cyl(0.030, 0.026, (0.0, 1.20, 0.28), mats["amber"],
+                                  axis="Y", verts=8, bevel=0.0), "kind": "lamp"})
+    return anims
+
+
+def build_repair_pad(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(3, damaged)
+    # Open steel service deck with a worn hazard border. No roof: the vehicle
+    # must remain fully visible while it is being worked on.
+    box((2.82, 2.82, 0.16), (0.0, 0.0, 0.31), mats["pad_light"], bevel=0.014)
+    box((2.46, 2.46, 0.07), (0.0, 0.0, 0.405), mats["steel"], bevel=0.006)
+    for i in range(4):
+        box((2.08, 0.05, 0.018), (0.0, -0.94 + i * 0.63, 0.447), mats["grill"], bevel=0.0)
+    for side in (-1.0, 1.0):
+        for i in range(6):
+            x = -1.12 + i * 0.45
+            box((0.30, 0.18, 0.035), (x, side * 1.28, 0.42), mats["yellow"],
+                rot=(0.0, 0.0, side * math.radians(20.0)), bevel=0.0)
+            box((0.20, 0.19, 0.037), (x + 0.16, side * 1.28, 0.423), mats["black"],
+                rot=(0.0, 0.0, side * math.radians(20.0)), bevel=0.0)
+        box((0.24, 2.42, 0.10), (side * 1.20, 0.0, 0.40), mats["yellow"], bevel=0.004)
+        for i in range(7):
+            box((0.22, 0.10, 0.11), (side * 1.20, -1.02 + i * 0.34, 0.42),
+                mats["black"], rot=(0.0, 0.0, math.radians(32.0)), bevel=0.0)
+        # Low side rails and corner jacks.
+        box((0.12, 2.30, 0.12), (side * 1.34, 0.0, 0.64), mats["steel"], bevel=0.006)
+        for y in (-1.20, 1.20):
+            box((0.20, 0.20, 0.52), (side * 1.34, y, 0.56), mats["steel_light"], bevel=0.008)
+            bolt((side * 1.34, y, 0.82), mats["steel"], 0.014, 0.018)
+    # Central alignment chevrons guide the driver onto the deck.
+    for i in range(4):
+        box((0.44, 0.11, 0.018), (0.0, -0.66 + i * 0.44, 0.452), mats["yellow"],
+            rot=(0.0, 0.0, math.radians(22.0)), bevel=0.0)
+    box((0.54, 0.54, 0.04), (0.0, 0.0, 0.452), mats["grill"], bevel=0.003)
+    torus(0.25, 0.025, (0.0, 0.0, 0.458), mats["yellow"], axis="Z", segments=24)
+    # Overhead service gantry with two articulated arms. The arms swing gently
+    # through the idle strip, while the deck itself stays clear.
+    for side in (-1.0, 1.0):
+        box((0.18, 0.18, 1.42), (side * 1.42, -0.94, 1.10), mats["steel"], bevel=0.008)
+        box((0.30, 0.30, 0.10), (side * 1.42, -0.94, 1.84), mats["steel_light"], bevel=0.005)
+    box((2.88, 0.18, 0.18), (0.0, -0.94, 1.86), mats["steel_light"], bevel=0.008)
+    box((1.18, 0.08, 0.05), (0.0, -0.94, 1.96), mats["trim"], bevel=0.003)
+    for i, side in enumerate((-1.0, 1.0)):
+        pivot = bpy.data.objects.new("RepairArm", None)
+        pivot.location = (side * 0.94, -0.84, 1.86)
+        link(pivot)
+        pivot["sandwar_model"] = True
+        arm = box((0.82, 0.12, 0.13), (side * 0.38, 0.40, -0.16), mats["yellow"], bevel=0.006)
+        arm.rotation_euler.z = math.radians(-28.0 if side < 0.0 else 28.0)
+        arm.parent = pivot
+        arm.matrix_parent_inverse = pivot.matrix_world.inverted()
+        head = box((0.22, 0.18, 0.18), (side * 0.72, 0.66, -0.24), mats["gunmetal"], bevel=0.006)
+        head.parent = pivot
+        head.matrix_parent_inverse = pivot.matrix_world.inverted()
+        cable = pipe((side * 0.72, 0.66, -0.24), (side * 0.60, 0.54, -0.78), 0.012,
+                     mats["black"])
+        cable.parent = pivot
+        cable.matrix_parent_inverse = pivot.matrix_world.inverted()
+        hook = box((0.12, 0.10, 0.12), (side * 0.60, 0.54, -0.84), mats["trim"], bevel=0.003)
+        hook.parent = pivot
+        hook.matrix_parent_inverse = pivot.matrix_world.inverted()
+        anims.append({"obj": pivot, "kind": "crane"})
+    # Fuel bowser, tool chest and work lamps at the rear corners.
+    box((0.38, 0.26, 0.20), (-1.06, -1.18, 0.58), mats["rust"], bevel=0.006)
+    box((0.30, 0.20, 0.07), (-1.06, -1.18, 0.71), mats["steel_light"], bevel=0.003)
+    box((0.34, 0.22, 0.16), (1.04, -1.18, 0.56), mats["steel"], bevel=0.005)
+    for x in (-1.24, 1.24):
+        cyl(0.045, 0.07, (x, 1.12, 0.62), mats["amber"], verts=10)
+        box((0.10, 0.10, 0.26), (x, 1.12, 0.50), mats["steel"], bevel=0.003)
+    if damaged:
+        box((0.64, 0.44, 0.02), (0.46, 0.36, 0.46), mats["scorch"], bevel=0.0)
+        box((0.22, 0.14, 0.08), (-0.42, 0.54, 0.48), mats["rust"],
+            rot=(0.2, 0.4, 0.6), bevel=0.004)
+        anims.append(fire_and_scorch(-0.82, 0.64, 0.35))
+    return anims
+
+
+def build_starport(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(3, damaged)
+    # The whole 3x3 footprint is a reinforced landing deck. A dark inset field
+    # with a bright rim makes the pad read at a glance from the RTS camera.
+    box((2.82, 2.82, 0.15), (0.0, 0.0, 0.315), mats["pad_light"], bevel=0.018)
+    box((2.55, 2.55, 0.08), (0.0, 0.0, 0.405), mats["steel"], bevel=0.012)
+    box((2.36, 2.36, 0.035), (0.0, 0.0, 0.452), mats["gunmetal"], bevel=0.008)
+    for side in (-1.0, 1.0):
+        box((2.52, 0.06, 0.045), (0.0, side * 1.22, 0.48), mats["yellow"], bevel=0.003)
+        box((0.06, 2.52, 0.045), (side * 1.22, 0.0, 0.48), mats["yellow"], bevel=0.003)
+    torus(0.92, 0.038, (0.0, 0.0, 0.468), mats["yellow"], axis="Z", segments=40)
+    torus(0.66, 0.024, (0.0, 0.0, 0.468), mats["trim"], axis="Z", segments=36)
+    # Bold landing chevrons pointing north toward the control tower.
+    for i in range(3):
+        cy = -0.38 + i * 0.58
+        for side in (-1.0, 1.0):
+            box((0.96, 0.20, 0.026), (side * 0.43, cy, 0.474), mats["black"],
+                rot=(0.0, 0.0, -side * math.radians(31.0)), bevel=0.0)
+            box((0.78, 0.15, 0.031), (side * 0.43, cy, 0.479), mats["yellow"],
+                rot=(0.0, 0.0, -side * math.radians(31.0)), bevel=0.0)
+    for x in (-1.08, 1.08):
+        for y in (-1.08, 1.08):
+            box((0.18, 0.18, 0.08), (x, y, 0.46), mats["steel_light"], bevel=0.006)
+            beacon = cyl(0.065, 0.13, (x, y, 0.545), mats["amber"], verts=10)
+            anims.append({"obj": beacon, "kind": "lamp"})
+    # Perimeter railings with a deliberate south opening for ground vehicles.
+    for side in (-1.0, 1.0):
+        for y in (-0.76, -0.20, 0.36):
+            box((0.09, 0.09, 0.38), (side * 1.34, y, 0.54), mats["steel"], bevel=0.004)
+        box((0.06, 1.36, 0.06), (side * 1.34, -0.18, 0.72), mats["steel_light"], bevel=0.002)
+    # Tall control tower on the north edge, with a glass cab and beacon mast.
+    box((0.96, 0.82, 0.22), (-1.02, -1.12, 0.38), mats["steel"], bevel=0.010)
+    box((0.64, 0.58, 1.48), (-1.02, -1.12, 1.16), mats["armor"], bevel=0.016)
+    box((0.78, 0.70, 0.16), (-1.02, -1.12, 1.93), mats["steel_light"], bevel=0.008)
+    box((0.60, 0.54, 0.54), (-1.02, -1.12, 2.25), mats["black"], bevel=0.008)
+    box((0.52, 0.045, 0.22), (-1.02, -0.835, 2.31), mats["cyan"], bevel=0.003)
+    for side in (-1.0, 1.0):
+        box((0.05, 0.42, 0.20), (-1.02 + side * 0.295, -1.12, 2.30), mats["cyan"], bevel=0.002)
+    box((0.82, 0.74, 0.12), (-1.02, -1.12, 2.58), mats["steel"], bevel=0.006)
+    cyl(0.035, 0.42, (-1.02, -1.12, 2.84), mats["steel_light"], verts=8)
+    tower_lamp = cyl(0.07, 0.05, (-1.02, -1.12, 3.05), mats["amber"], verts=10)
+    anims.append({"obj": tower_lamp, "kind": "lamp"})
+    for y in (0.42, -0.05, -0.52):
+        box((0.04, 0.34, 0.28), (-0.69, y - 0.08, 1.18), mats["gunmetal"], bevel=0.003)
+    box((0.52, 0.06, 0.08), (-1.02, -0.80, 0.56), mats["trim"], bevel=0.002)
+    # Low terminal and cargo frames along the north deck.
+    box((0.82, 0.34, 0.36), (0.62, -1.19, 0.60), mats["steel"], bevel=0.008)
+    box((0.62, 0.06, 0.16), (0.62, -1.01, 0.67), mats["cyan"], bevel=0.002)
+    for x in (0.34, 0.90):
+        box((0.08, 0.28, 0.52), (x, -1.22, 0.55), mats["rust"], bevel=0.004)
+    if damaged:
+        add_deck_crater(-0.52, 0.62, 0.27, True)
+        add_deck_crater(0.62, 0.08, 0.18, True)
+        box((0.42, 0.06, 0.16), (1.02, -0.38, 0.50), mats["steel"],
+            rot=(0.6, 0.2, 0.4), bevel=0.005)
+        anims.append(fire_and_scorch(0.72, -0.86, 0.62))
+        anims.append(fire_and_scorch(-0.42, 0.74, 0.42))
+    return anims
+
+
+def build_hightech(damaged: bool):
+    mats = MATS
+    anims = []
+    # The High Tech Factory is a 3x2 hangar, so its foundation and camera cell
+    # use the same 3-tile sheet but the south tile is a runway apron.
+    add_foundation_rect(3, 2, damaged)
+    box((2.78, 1.76, 0.14), (0.0, 0.02, 0.315), mats["pad_light"], bevel=0.014)
+    box((2.62, 0.62, 0.08), (0.0, 0.57, 0.365), mats["black"], bevel=0.006)
+    for i in range(5):
+        box((0.20, 0.55, 0.02), (-0.94 + i * 0.47, 0.57, 0.410), mats["yellow"],
+            rot=(0.0, 0.0, math.radians(24.0)), bevel=0.0)
+    for side in (-1.0, 1.0):
+        box((0.08, 2.16, 0.05), (side * 1.27, -0.18, 0.42), mats["cyan"], bevel=0.003)
+    # Layered aerodynamic shell and curved barrel-vault roof.
+    box((2.48, 1.42, 0.88), (0.0, -0.16, 0.80), mats["armor"], bevel=0.020)
+    box((2.28, 1.26, 0.30), (0.0, -0.16, 1.34), mats["armor_light"], bevel=0.014)
+    cyl(0.49, 2.28, (0.0, -0.16, 1.46), mats["armor"], axis="X", verts=28, smooth=True)
+    for x in (-1.15, 1.15):
+        cyl(0.505, 0.07, (x, -0.16, 1.46), mats["steel_light"], axis="X", verts=28)
+    box((2.36, 0.10, 0.05), (0.0, 0.58, 1.22), mats["trim"], bevel=0.003)
+    # Wide hangar mouth with a cyan-lit interior and runway guide rails.
+    box((1.76, 0.10, 0.88), (0.0, 0.545, 0.82), mats["black"], bevel=0.006)
+    for i in range(5):
+        box((1.58, 0.028, 0.055), (0.0, 0.602, 0.47 + i * 0.135), mats["grill"], bevel=0.001)
+    box((1.82, 0.08, 0.08), (0.0, 0.60, 1.29), mats["cyan"], bevel=0.003)
+    box((1.62, 0.05, 0.06), (0.0, 0.60, 0.42), mats["trim"], bevel=0.002)
+    for side in (-1.0, 1.0):
+        box((0.12, 0.16, 1.02), (side * 0.94, 0.58, 0.83), mats["steel_light"], bevel=0.005)
+        box((0.22, 0.10, 0.08), (side * 0.94, 0.64, 1.31), mats["yellow"], bevel=0.003)
+    # Glowing turbine pods on outboard pylons. Three cyan coils on each pod.
+    for side in (-1.0, 1.0):
+        px = side * 1.30
+        box((0.20, 0.48, 0.20), (px, -0.16, 0.72), mats["steel"], bevel=0.005)
+        cyl(0.27, 0.58, (px, 0.18, 1.00), mats["steel_light"], axis="Y", verts=18)
+        cyl(0.19, 0.60, (px, 0.18, 1.00), mats["black"], axis="Y", verts=18)
+        for i in range(3):
+            coil = torus(0.22, 0.024, (px, 0.00 + i * 0.17, 1.00), mats["cyan"],
+                         axis="Y", segments=22)
+            anims.append({"obj": coil, "kind": "lamp"})
+        cyl(0.075, 0.04, (px, 0.48, 1.00), mats["plasma"], axis="Y", verts=12)
+    # Rear fin, control glass and service gantries.
+    box((0.10, 0.64, 0.56), (0.0, -0.78, 1.78), mats["steel_light"], bevel=0.006)
+    box((0.06, 0.38, 0.30), (0.0, -0.78, 2.12), mats["trim"], bevel=0.003)
+    box((0.68, 0.08, 0.16), (0.0, -0.78, 1.44), mats["cyan"], bevel=0.002)
+    for x in (-0.72, 0.72):
+        box((0.46, 0.24, 0.16), (x, -0.84, 1.38), mats["gunmetal"], bevel=0.004)
+    if damaged:
+        add_deck_crater(0.72, 0.60, 0.19, True)
+        add_deck_crater(-0.96, 0.42, 0.14, True)
+        box((0.46, 0.06, 0.12), (-0.46, -0.16, 1.98), mats["steel"],
+            rot=(0.5, 0.2, 0.6), bevel=0.004)
+        anims.append(fire_and_scorch(-0.52, 0.20, 0.58))
+        anims.append(fire_and_scorch(0.86, 0.54, 0.40))
+    return anims
+
+
+def build_ix(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(2, damaged)
+    box((1.84, 1.84, 0.12), (0.0, 0.0, 0.31), mats["pad_light"], bevel=0.014)
+    cyl(0.88, 0.18, (0.0, 0.0, 0.43), mats["armor"], verts=8, bevel=0.010)
+    cyl(0.76, 0.16, (0.0, 0.0, 0.58), mats["steel_light"], verts=24, bevel=0.008)
+    # Four armored buttresses braced around the laboratory drum.
+    for side_x in (-1.0, 1.0):
+        for side_y in (-1.0, 1.0):
+            box((0.26, 0.42, 1.16), (side_x * 0.79, side_y * 0.78, 0.82), mats["armor"],
+                rot=(0.0, 0.0, side_x * side_y * math.radians(-37.0)), bevel=0.010)
+            box((0.34, 0.26, 0.14), (side_x * 0.79, side_y * 0.78, 0.39), mats["steel"], bevel=0.006)
+            bolt((side_x * 0.79, side_y * 0.78, 1.42), mats["steel_light"], 0.018, 0.016)
+    cyl(0.68, 0.62, (0.0, 0.0, 1.03), mats["armor"], verts=24, bevel=0.008)
+    sphere(0.71, (0.0, 0.0, 1.22), mats["armor_light"], scale=(1.0, 1.0, 0.74),
+           segments=28, rings=16)
+    for z in (0.72, 1.08):
+        torus(0.74, 0.026, (0.0, 0.0, z), mats["plasma"], axis="Z", segments=36)
+    for i in range(8):
+        a = math.tau * float(i) / 8.0
+        box((0.075, 0.16, 0.36), (math.cos(a) * 0.65, math.sin(a) * 0.65, 1.34),
+            mats["black"], rot=(0.0, 0.0, a), bevel=0.002)
+        box((0.050, 0.07, 0.25), (math.cos(a) * 0.70, math.sin(a) * 0.70, 1.34),
+            mats["cyan"], rot=(0.0, 0.0, a), bevel=0.001)
+    # Blue-white plasma conduits climb from the plinth to the spire collar.
+    for side_x in (-1.0, 1.0):
+        for side_y in (-1.0, 1.0):
+            pipe((side_x * 0.48, side_y * 0.48, 0.52),
+                 (side_x * 0.20, side_y * 0.20, 1.78), 0.026, mats["plasma"], verts=10)
+            pipe((side_x * 0.48, side_y * 0.48, 0.52),
+                 (side_x * 0.32, side_y * 0.32, 1.15), 0.018, mats["steel"], verts=8)
+    cyl(0.30, 0.46, (0.0, 0.0, 1.70), mats["steel_light"], verts=16, bevel=0.006)
+    cyl(0.23, 0.50, (0.0, 0.0, 2.04), mats["armor"], verts=16, bevel=0.005)
+    for z in (1.86, 2.09):
+        ring = torus(0.27, 0.025, (0.0, 0.0, z), mats["plasma"], axis="Z", segments=28)
+        anims.append({"obj": ring, "kind": "lamp"})
+    cone(0.24, 0.05, 0.36, (0.0, 0.0, 2.42), mats["armor_light"], verts=16, bevel=0.004)
+    top = sphere(0.13, (0.0, 0.0, 2.66), mats["plasma"], segments=16, rings=10)
+    anims.append({"obj": top, "kind": "lamp"})
+    for y in (-0.91, 0.91):
+        box((0.54, 0.06, 0.08), (0.0, y, 0.60), mats["trim"], bevel=0.002)
+    if damaged:
+        add_deck_crater(0.56, 0.52, 0.20, True)
+        box((0.30, 0.22, 0.10), (-0.58, -0.48, 1.06), mats["rust"],
+            rot=(0.4, 0.3, 0.6), bevel=0.006)
+        anims.append(fire_and_scorch(-0.62, -0.55, 0.44))
+    return anims
+
+
+def build_palace(damaged: bool):
+    mats = MATS
+    anims = []
+    add_foundation(3, damaged)
+    box((2.84, 2.84, 0.15), (0.0, 0.0, 0.32), mats["pad_light"], bevel=0.018)
+    # Broad fortress apron and the south gate ramp.
+    box((2.60, 2.40, 0.14), (0.0, -0.10, 0.43), mats["armor"], bevel=0.012)
+    box((1.10, 0.48, 0.12), (0.0, 1.08, 0.42), mats["steel"], bevel=0.008)
+    for i in range(4):
+        box((0.24, 0.54, 0.03), (-0.42 + i * 0.28, 1.08, 0.49), mats["yellow"],
+            rot=(0.0, 0.0, math.radians(18.0)), bevel=0.0)
+    # Buttressed curtain walls with a gate opening in the south face.
+    box((2.56, 0.26, 0.94), (0.0, -1.20, 0.90), mats["armor_light"], bevel=0.012)
+    for side in (-1.0, 1.0):
+        box((0.26, 2.42, 0.94), (side * 1.28, -0.05, 0.90), mats["armor_light"], bevel=0.012)
+        box((0.84, 0.26, 0.94), (side * 0.88, 1.23, 0.90), mats["armor_light"], bevel=0.012)
+        for y in (-1.20, -0.66, -0.12, 0.42, 0.96):
+            box((0.14, 0.30, 1.22), (side * 1.35, y, 0.90), mats["armor"], bevel=0.007)
+            box((0.20, 0.18, 0.16), (side * 1.35, y, 1.58), mats["steel"], bevel=0.005)
+        for x in (side * 1.10, side * 0.62):
+            box((0.48, 0.18, 0.20), (x, 1.23, 1.48), mats["steel"], bevel=0.004)
+    for x in (-1.02, -0.52, 0.52, 1.02):
+        box((0.28, 0.14, 0.22), (x, -1.20, 1.48), mats["steel"], bevel=0.004)
+    # Gate frame and recessed blast door.
+    box((0.96, 0.28, 1.12), (0.0, 1.24, 0.90), mats["steel"], bevel=0.012)
+    box((0.74, 0.12, 0.94), (0.0, 1.39, 0.86), mats["black"], bevel=0.006)
+    for i in range(5):
+        box((0.62, 0.025, 0.08), (0.0, 1.46, 0.48 + i * 0.17), mats["grill"], bevel=0.001)
+    # Corner bastions and their house banners.
+    for side_x in (-1.0, 1.0):
+        for side_y in (-1.0, 1.0):
+            box((0.50, 0.50, 1.46), (side_x * 1.14, side_y * 1.10, 0.99), mats["armor_light"], bevel=0.012)
+            box((0.62, 0.62, 0.16), (side_x * 1.14, side_y * 1.10, 1.77), mats["steel"], bevel=0.008)
+            for bx in (-0.20, 0.0, 0.20):
+                for by in (-0.20, 0.0, 0.20):
+                    if abs(bx) + abs(by) < 0.35:
+                        continue
+                    box((0.13, 0.13, 0.20), (side_x * 1.14 + bx, side_y * 1.10 + by, 1.94),
+                        mats["armor"], bevel=0.003)
+    for side in (-1.0, 1.0):
+        box((0.36, 0.035, 0.70), (side * 0.56, 1.38, 1.02), mats["trim"], bevel=0.002)
+        box((0.42, 0.05, 0.06), (side * 0.56, 1.38, 1.41), mats["steel_light"], bevel=0.002)
+        box((0.10, 0.02, 0.10), (side * 0.56, 1.40, 1.20), mats["black"], bevel=0.001)
+    # Central keep, upper command block and fortified spire.
+    box((1.54, 1.34, 0.80), (0.0, -0.10, 0.92), mats["armor"], bevel=0.018)
+    box((1.32, 1.12, 0.56), (0.0, -0.10, 1.56), mats["armor_light"], bevel=0.014)
+    for side in (-1.0, 1.0):
+        box((0.22, 0.74, 0.82), (side * 0.72, 0.35, 0.90), mats["steel_light"],
+            rot=(0.0, 0.0, side * math.radians(-9.0)), bevel=0.007)
+        box((0.20, 0.20, 1.18), (side * 0.60, 0.93, 1.14), mats["armor_light"],
+            rot=(0.0, 0.0, side * math.radians(8.0)), bevel=0.006)
+    box((0.98, 0.16, 0.22), (0.0, 0.54, 1.88), mats["steel"], bevel=0.005)
+    for x in (-0.36, 0.0, 0.36):
+        box((0.20, 0.18, 0.12), (x, 0.56, 1.98), mats["cyan"], bevel=0.002)
+    cyl(0.50, 0.30, (0.0, -0.10, 1.96), mats["steel_light"], verts=8, bevel=0.008)
+    cyl(0.38, 0.62, (0.0, -0.10, 2.28), mats["armor"], verts=16, bevel=0.006)
+    for z in (2.14, 2.40):
+        box((0.82, 0.82, 0.08), (0.0, -0.10, z), mats["trim"], rot=(0.0, 0.0, math.radians(45.0)), bevel=0.002)
+    cone(0.40, 0.06, 0.64, (0.0, -0.10, 2.78), mats["armor_light"], verts=16, bevel=0.005)
+    spire_lamp = cyl(0.055, 0.04, (0.0, -0.10, 3.11), mats["amber"], verts=10)
+    anims.append({"obj": spire_lamp, "kind": "lamp"})
+    for side in (-1.0, 1.0):
+        box((0.26, 0.035, 0.62), (side * 0.40, 0.54, 1.30), mats["trim"], bevel=0.002)
+        box((0.32, 0.05, 0.05), (side * 0.40, 0.55, 1.63), mats["steel_light"], bevel=0.002)
+    # Wall torch bowls flanking the gate, lit even in the idle strip.
+    for side in (-1.0, 1.0):
+        cyl(0.13, 0.10, (side * 1.44, 1.12, 1.30), mats["steel"], verts=12)
+        flame = sphere(0.10, (side * 1.44, 1.12, 1.43), mats["fire"], segments=12, rings=8)
+        anims.append({"obj": flame, "kind": "fire", "phase": side * 1.4})
+    if damaged:
+        add_deck_crater(-0.82, 0.74, 0.25, True)
+        add_deck_crater(0.88, -0.44, 0.18, True)
+        box((0.64, 0.22, 0.22), (0.92, 1.20, 0.72), mats["rust"],
+            rot=(0.3, 0.2, 0.4), bevel=0.006)
+        anims.append(fire_and_scorch(0.88, 0.86, 0.72))
+        anims.append(fire_and_scorch(-0.68, -0.42, 0.52))
     return anims
 
 
@@ -578,6 +1070,14 @@ SPECS = {
     "windtrap": {"span": 2},
     "barracks": {"span": 2},
     "factory": {"span": 3},
+    "heavy_factory": {"span": 3},
+    "silo": {"span": 1},
+    "outpost": {"span": 2},
+    "repair_pad": {"span": 3},
+    "starport": {"span": 3},
+    "hightech": {"span": 3},
+    "ix": {"span": 2},
+    "palace": {"span": 3},
     "turret": {"span": 1},
     "rocketturret": {"span": 1},
     "wall": {"span": 1},
@@ -593,6 +1093,47 @@ def args_after_ddash() -> list[str]:
     if "--" not in sys.argv:
         return []
     return sys.argv[sys.argv.index("--") + 1:]
+
+
+def enable_freestyle() -> None:
+    """Technical-ink line pass shared by every building and unit bake.
+
+    Thickness is deliberately in render pixels and scales with the 4x unit
+    sheets: 1.25 * Linestyle 3.2 lands at roughly one game pixel once the
+    sheet is drawn at UnitArt.SCALE / StructureView.WORLD_SPRITE_SCALE.
+    """
+    scene = bpy.context.scene
+    scene.render.use_freestyle = True
+    scene.render.line_thickness_mode = "ABSOLUTE"
+    scene.render.line_thickness = 1.25
+    view_layer = bpy.context.view_layer
+    view_layer.use_freestyle = True
+    settings = view_layer.freestyle_settings
+    settings.crease_angle = math.radians(125.0)
+    settings.mode = "EDITOR"
+    # Rebuild rather than reuse: a factory-startup view layer already carries
+    # a dormant lineset whose render flags do not survive every Blender build.
+    for old in list(settings.linesets):
+        settings.linesets.remove(old)
+    lineset = settings.linesets.new("Technical Ink")
+    lineset.select_silhouette = True
+    lineset.select_border = True
+    lineset.select_crease = True
+    lineset.select_contour = False
+    lineset.select_external_contour = False
+    lineset.select_material_boundary = False
+    lineset.select_edge_mark = False
+    lineset.select_ridge_valley = False
+    lineset.select_suggestive_contour = False
+    # Blender 5.x can create a lineset without an attached style in headless
+    # factory-startup sessions; attach one explicitly instead of assuming.
+    style = lineset.linestyle
+    if style is None:
+        style = bpy.data.linestyles.new("Technical Ink")
+        lineset.linestyle = style
+    style.color = (0.05, 0.035, 0.025)
+    style.thickness = 3.2
+    print("FREESTYLE technical ink enabled", flush=True)
 
 
 def configure_cycles_device() -> str:
@@ -742,6 +1283,13 @@ def surface(name, base, metallic, rough, *, rust=0.0, dirt=0.55, bump=0.24,
     ao.inputs["Distance"].default_value = 0.42
     ao.samples = 8
     ao.inside = False
+    # Umber grime in the cavities instead of neutral grey. This is what makes
+    # the illustrated armour look sun-baked rather than plastic.
+    ao_warm = nodes.new("ShaderNodeMixRGB")
+    ao_warm.blend_type = "MIX"
+    ao_warm.inputs["Fac"].default_value = 0.42
+    links.new(ao.outputs["Color"], ao_warm.inputs["Color1"])
+    ao_warm.inputs["Color2"].default_value = (0.410, 0.265, 0.150, 1.0)
 
     # Base colour -> AO darkening in corners and crevices.
     base_node = nodes.new("ShaderNodeRGB")
@@ -750,7 +1298,7 @@ def surface(name, base, metallic, rough, *, rust=0.0, dirt=0.55, bump=0.24,
     dirt_mix.blend_type = "MULTIPLY"
     dirt_mix.inputs["Fac"].default_value = dirt
     links.new(base_node.outputs[0], dirt_mix.inputs["Color1"])
-    links.new(ao.outputs["Color"], dirt_mix.inputs["Color2"])
+    links.new(ao_warm.outputs[0], dirt_mix.inputs["Color2"])
 
     albedo = dirt_mix
     if rust > 0.0:
@@ -774,7 +1322,7 @@ def surface(name, base, metallic, rough, *, rust=0.0, dirt=0.55, bump=0.24,
         keep.blend_type = "MULTIPLY"
         keep.inputs["Fac"].default_value = 0.22
         links.new(base_node.outputs[0], keep.inputs["Color1"])
-        links.new(ao.outputs["Color"], keep.inputs["Color2"])
+        links.new(ao_warm.outputs[0], keep.inputs["Color2"])
         albedo = keep
 
     links.new(albedo.outputs[0], bsdf.inputs["Base Color"])
@@ -816,19 +1364,21 @@ MATS = {}
 
 
 def build_materials() -> None:
-    MATS["pad"] = surface("Sunbaked Pad", (0.500, 0.360, 0.245), 0.02, 0.90,
+    MATS["pad"] = surface("Sunbaked Pad", (0.520, 0.375, 0.235), 0.02, 0.90,
                           dirt=0.55, bump=0.34)
-    MATS["pad_light"] = surface("Pad Top", (0.600, 0.455, 0.315), 0.02, 0.86,
+    MATS["pad_light"] = surface("Pad Top", (0.635, 0.500, 0.335), 0.02, 0.86,
                                 dirt=0.48, bump=0.30)
-    MATS["armor"] = surface("Sun Bleached Armor", (0.755, 0.725, 0.655), 0.06, 0.56,
-                            dirt=0.16, bump=0.15)
-    MATS["armor_light"] = surface("Bone Plate", (0.850, 0.820, 0.745), 0.04, 0.50,
-                                  dirt=0.12, bump=0.13)
-    MATS["steel"] = surface("Weathered Steel", (0.285, 0.285, 0.275), 0.70, 0.44,
-                            rust=0.46, dirt=0.52, bump=0.22)
-    MATS["steel_light"] = surface("Worn Steel Rim", (0.400, 0.400, 0.380), 0.68, 0.40,
+    # Warm sun-baked steel: never a stark neutral white. The highlight comes
+    # from the NW key, the ochre base keeps it part of the desert palette.
+    MATS["armor"] = surface("Sun Baked Ochre Steel", (0.705, 0.595, 0.445), 0.22, 0.54,
+                            dirt=0.22, bump=0.16)
+    MATS["armor_light"] = surface("Sun Baked Bone Steel", (0.815, 0.700, 0.525), 0.18, 0.48,
+                                  dirt=0.18, bump=0.14)
+    MATS["steel"] = surface("Weathered Umber Steel", (0.250, 0.215, 0.170), 0.70, 0.46,
+                            rust=0.46, dirt=0.54, bump=0.22)
+    MATS["steel_light"] = surface("Worn Steel Rim", (0.405, 0.345, 0.255), 0.68, 0.40,
                                   rust=0.28, dirt=0.48, bump=0.18)
-    MATS["gunmetal"] = surface("Gunmetal", (0.140, 0.150, 0.145), 0.78, 0.42,
+    MATS["gunmetal"] = surface("Warm Gunmetal", (0.115, 0.105, 0.085), 0.78, 0.44,
                                rust=0.20, dirt=0.44, bump=0.24)
     MATS["black"] = surface("Soot Black", (0.035, 0.036, 0.034), 0.25, 0.78,
                             dirt=0.25, bump=0.20)
@@ -849,9 +1399,20 @@ def build_materials() -> None:
     MATS["cyan"] = surface("Vent Glow", (0.020, 0.470, 0.430), 0.10, 0.30,
                            dirt=0.10, bump=0.10,
                            emission=(0.030, 1.000, 0.850), emission_strength=2.6)
+    MATS["plasma"] = surface("IX Plasma", (0.045, 0.160, 0.480), 0.14, 0.24,
+                             dirt=0.06, bump=0.08,
+                             emission=(0.360, 0.720, 1.000), emission_strength=3.8)
     MATS["amber"] = surface("Status Lamp", (0.600, 0.230, 0.030), 0.05, 0.35,
                             dirt=0.10, bump=0.10,
                             emission=(1.000, 0.330, 0.030), emission_strength=3.4)
+    # Raw spice seen through a Silo hatch: hot orange, self-lit so it reads even
+    # inside the shadow of the roof.
+    MATS["spice"] = surface("Raw Spice", (0.780, 0.230, 0.025), 0.04, 0.62,
+                            dirt=0.08, bump=0.30,
+                            emission=(1.000, 0.240, 0.025), emission_strength=1.1)
+    MATS["spice_glow"] = surface("Spice Glow", (0.900, 0.330, 0.045), 0.02, 0.48,
+                                 dirt=0.04, bump=0.18,
+                                 emission=(1.000, 0.300, 0.035), emission_strength=2.2)
     MATS["fire"] = surface("Burning Wreck", (0.640, 0.190, 0.025), 0.0, 0.70,
                            dirt=0.10, bump=0.10,
                            emission=(1.000, 0.240, 0.015), emission_strength=2.2)
@@ -924,7 +1485,12 @@ def sphere(radius, loc, mat, scale=(1.0, 1.0, 1.0), segments=24, rings=12):
 
 
 def torus(major, minor, loc, mat, *, axis="Y", segments=32):
-    rot = (math.radians(90.0), 0.0, 0.0) if axis == "Y" else (0.0, 0.0, 0.0)
+    if axis == "Y":
+        rot = (math.radians(90.0), 0.0, 0.0)
+    elif axis == "X":
+        rot = (0.0, math.radians(90.0), 0.0)
+    else:
+        rot = (0.0, 0.0, 0.0)
     bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor,
                                      major_segments=segments, minor_segments=7,
                                      location=loc, rotation=rot)
@@ -964,21 +1530,22 @@ def build_stage() -> None:
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
     # Warm dusty ochre sky bounce. Film is transparent, so this only lights.
-    bg.inputs["Color"].default_value = (0.330, 0.245, 0.165, 1.0)
-    bg.inputs["Strength"].default_value = 0.78
+    bg.inputs["Color"].default_value = (0.375, 0.250, 0.145, 1.0)
+    bg.inputs["Strength"].default_value = 0.66
     bpy.context.scene.world = world
 
     sun_data = bpy.data.lights.new("Desert Sun", "SUN")
-    sun_data.energy = 2.4
-    sun_data.angle = math.radians(1.2)
-    sun_data.color = (1.0, 0.950, 0.860)
+    sun_data.energy = 2.9
+    sun_data.angle = math.radians(1.5)
+    sun_data.color = (1.0, 0.845, 0.655)
     sun = bpy.data.objects.new("Desert Sun", sun_data)
-    sun.rotation_euler = Vector((0.40, 0.46, -0.79)).to_track_quat("-Z", "Y").to_euler()
+    # Lower NW key: crisper raking highlights and longer illustrated shadows.
+    sun.rotation_euler = Vector((0.52, 0.58, -0.62)).to_track_quat("-Z", "Y").to_euler()
     link(sun)
 
     fill_data = bpy.data.lights.new("Warm Bounce", "AREA")
-    fill_data.energy = 340.0
-    fill_data.color = (1.0, 0.945, 0.870)
+    fill_data.energy = 300.0
+    fill_data.color = (1.0, 0.860, 0.680)
     fill_data.size = 9.0
     fill_data.use_shadow = False
     fill = bpy.data.objects.new("Warm Bounce", fill_data)
@@ -989,8 +1556,8 @@ def build_stage() -> None:
     link(fill)
 
     rim_data = bpy.data.lights.new("Cool Rim", "AREA")
-    rim_data.energy = 170.0
-    rim_data.color = (0.56, 0.66, 0.82)
+    rim_data.energy = 110.0
+    rim_data.color = (0.50, 0.58, 0.70)
     rim_data.size = 5.0
     rim_data.use_shadow = False
     rim = bpy.data.objects.new("Cool Rim", rim_data)
@@ -1005,6 +1572,8 @@ def build_stage() -> None:
     cam = bpy.data.objects.new("South Camera", cam_data)
     link(cam)
     bpy.context.scene.camera = cam
+
+    enable_freestyle()
 
     # No ground plane: the sprite gets a controlled drop shadow in post so the
     # contact shadow can never bleed past the sprite cell and tile-seam.
@@ -1024,8 +1593,9 @@ def aim_camera(span: int) -> None:
 # ---------------------------------------------------------------- construction
 
 
-def add_foundation(span: int, damaged: bool) -> None:
-    sx = sz = float(span)
+def add_foundation_rect(span_x: int, span_y: int, damaged: bool) -> None:
+    sx = float(span_x)
+    sz = float(span_y)
     box((sx - 0.035, sz - 0.035, 0.11), (0, 0, 0.045), MATS["black"], bevel=0.010)
     box((sx - 0.15, sz - 0.15, 0.17), (0, 0, 0.125), MATS["pad"], bevel=0.020)
     box((sx - 0.27, sz - 0.27, 0.07), (0, 0, 0.235), MATS["pad_light"], bevel=0.012)
@@ -1036,6 +1606,10 @@ def add_foundation(span: int, damaged: bool) -> None:
     for i in range(3):
         box((0.30, 0.014, 0.006), (-sx * 0.24 + i * sx * 0.24, sz * 0.20 + i * 0.06, 0.2735),
             MATS["black"], bevel=0.001)
+
+
+def add_foundation(span: int, damaged: bool) -> None:
+    add_foundation_rect(span, span, damaged)
 
 
 def add_deck_crater(x, y, radius, damaged: bool) -> None:
@@ -1359,6 +1933,8 @@ def render_frames(building: str, damaged: bool, anim: list) -> None:
             elif kind == "fan":
                 obj.rotation_euler = (0.0, phase * math.tau + entry.get("speed", 1.0) * math.tau,
                                       0.0)
+            elif kind == "radar":
+                obj.rotation_euler.z = phase * math.tau
             elif kind == "fire":
                 flick = 0.78 + 0.34 * abs(math.sin(phase * math.tau + entry.get("phase", 0.0)))
                 obj.scale = (flick, flick, flick * 0.8)
@@ -1475,9 +2051,9 @@ def assemble_icon(building: str, icon_render: Path) -> Path:
     dx = (xx - 31.5) / 31.0
     dy = (yy - 32.0) / 31.0
     glow = np.clip(1.0 - np.sqrt(dx * dx + dy * dy * 1.25), 0.0, 1.0)
-    canvas[..., 0] = 0.10 * 255.0
-    canvas[..., 1] = 0.18 * 255.0
-    canvas[..., 2] = 0.23 * 255.0
+    canvas[..., 0] = 0.16 * 255.0
+    canvas[..., 1] = 0.105 * 255.0
+    canvas[..., 2] = 0.060 * 255.0
     canvas[..., 3] = glow * 0.20 * 255.0
     ox = (ICON_SIZE - w) // 2
     oy = max(2, (ICON_SIZE - h) // 2)
@@ -1504,6 +2080,14 @@ BUILDERS = {
     "windtrap": build_windtrap,
     "barracks": build_barracks,
     "factory": build_factory,
+    "heavy_factory": build_heavy_factory,
+    "silo": build_silo,
+    "outpost": build_outpost,
+    "repair_pad": build_repair_pad,
+    "starport": build_starport,
+    "hightech": build_hightech,
+    "ix": build_ix,
+    "palace": build_palace,
     "turret": build_turret_base,
     "rocketturret": build_rocket_base,
     "wall": build_wall,

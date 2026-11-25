@@ -55,6 +55,11 @@ var minimap: Minimap
 var power_bar: PowerBar
 var cancel_button: Button
 var box_button: Button
+var upgrade_button: Button
+var deploy_button: Button
+var starport_button: Button
+var palace_button: Button
+var orni_button: Button
 var repair_button: ActionIcon
 var sell_button: ActionIcon
 var guard_button: ActionIcon
@@ -62,6 +67,7 @@ var hammer_button: ActionIcon
 var status_orb: StatusOrb
 var options_button: Button
 var options_popup: PanelContainer
+var graphics_button: TouchButton
 var briefing_button: TouchButton
 var mission_banner: Label
 var objective_plate: ObjectivePlate
@@ -81,14 +87,33 @@ var overlay_title: Label
 var overlay_body: Label
 var overlay_buttons: VBoxContainer
 var refresh_timer := 0.0
+## CHOAM Starport market. Kept separate from the result overlay so a match can
+## end without the trade screen swallowing the victory card.
+var market_overlay: Control
+var market_rows: GridContainer
+var market_timer_label: Label
+var market_footer_label: Label
+var market_open_flag := false
+var _market_offer_ids: Array = []
+var _market_price_labels: Dictionary = {}
+var _market_stock_labels: Dictionary = {}
+var _market_order_buttons: Dictionary = {}
 
 const STRUCTURE_ITEMS := [
 	["structure", "windtrap"],
 	["structure", "refinery"],
+	["structure", "silo"],
 	["structure", "barracks"],
 	["structure", "factory"],
+	["structure", "heavy_factory"],
+	["structure", "outpost"],
+	["structure", "repair_pad"],
 	["structure", "turret"],
 	["structure", "rocketturret"],
+	["structure", "starport"],
+	["structure", "hightech"],
+	["structure", "ix"],
+	["structure", "palace"],
 	["brush", "slab"],
 	["brush", "wall"],
 ]
@@ -97,8 +122,10 @@ const STRUCTURE_ITEMS := [
 ## Short labels for the sidebar tiles. They are sized to fit one line beside
 ## the build portrait; the full name stays in each tile's tooltip.
 const TILE_NAMES := {
-	"windtrap": "WIND TRAP", "refinery": "REFINERY", "barracks": "BARRACKS",
-	"factory": "FACTORY", "turret": "GUN TURRET", "rocketturret": "ROCKET TURRET",
+	"windtrap": "WIND TRAP", "refinery": "REFINERY", "silo": "SPICE SILO",
+	"barracks": "BARRACKS", "factory": "LIGHT FACTORY", "heavy_factory": "HEAVY FACTORY",
+	"outpost": "OUTPOST", "repair_pad": "REPAIR PAD",
+	"turret": "GUN TURRET", "rocketturret": "ROCKET TURRET", "mcv": "MCV",
 	"slab": "CONCRETE", "wall": "WALL", "infantry": "INFANTRY",
 	"rocket": "ROCKET", "trike": "TRIKE", "raider_trike": "RAIDER TRIKE",
 	"quad": "QUAD", "tank": "SIEGE TANK", "atreides_tank": "ATREIDES TANK",
@@ -106,6 +133,8 @@ const TILE_NAMES := {
 	"sonic_tank": "SONIC TANK", "devastator": "DEVASTATOR",
 	"deviator": "DEVIATOR", "harvester": "HARVESTER", "fremen": "FREMEN",
 	"sardaukar": "SARDAUKAR", "saboteur": "SABOTEUR",
+	"starport": "STARPORT", "hightech": "HIGH TECH", "ix": "IX CENTRE",
+	"palace": "PALACE", "carryall": "CARRYALL",
 }
 
 # ------------------------------------------------------------------ widgets
@@ -426,22 +455,22 @@ class ScrollArrow:
 			queue_redraw()
 
 	func _draw() -> void:
-		if not _hover and not _down:
-			return
+		var active := _hover or _down
+		var a := 0.34 if not active else 0.82
 		var r := Rect2(Vector2(1.5, 2.0), size - Vector2(3.0, 4.0))
 		draw_colored_polygon(PackedVector2Array([
 			r.position, r.position + Vector2(r.size.x, 0.0),
 			r.position + Vector2(r.size.x - 3.0, r.size.y - 2.0),
 			r.position + Vector2(0.0, r.size.y - 2.0),
-		]), Color(1.0, 0.78, 0.30, 0.12 if _hover else 0.18))
-		draw_rect(r, Color(1.0, 0.86, 0.48, 0.54), false, 1.0)
+		]), Color(1.0, 0.78, 0.30, 0.10 if not active else 0.18))
+		draw_rect(r, Color(1.0, 0.86, 0.48, a * 0.54), false, 1.0)
 		var c := size * 0.5
 		var w := minf(size.x, size.y) * 0.20
 		var tip := c + Vector2(0.0, -w * 0.65 if direction < 0 else w * 0.65)
 		var base_y := c.y + w * 0.55 if direction < 0 else c.y - w * 0.55
 		draw_colored_polygon(PackedVector2Array([
 			Vector2(c.x - w, base_y), Vector2(c.x + w, base_y), tip,
-		]), Color(1.0, 0.88, 0.48, 0.80))
+		]), Color(1.0, 0.88, 0.48, a))
 
 
 ## Small Atreides hawk crest beside the panel title.
@@ -493,6 +522,8 @@ class BuildTile:
 	var _hold_pos := Vector2.ZERO
 	var _hold_fired := false
 	var _ignore_release := false
+	var _drag_accum := 0.0
+	var _dragging := false
 
 	const TOP := Color("4b2a18")
 	const BOTTOM := Color("1a0c09")
@@ -526,7 +557,7 @@ class BuildTile:
 				_holding = false
 				_ignore_release = true
 				return
-			if not _hold_fired and Time.get_ticks_msec() - _hold_started_ms >= 400 and can_cancel():
+			if not _dragging and not _hold_fired and Time.get_ticks_msec() - _hold_started_ms >= 400 and can_cancel():
 				_hold_fired = true
 				cancel_flash = 0.32
 				cancel_pressed.emit()
@@ -541,6 +572,22 @@ class BuildTile:
 			hovered = true
 			queue_redraw()
 			return
+		if event is InputEventScreenDrag and _hold_index == event.index:
+			if _touch_blocked():
+				return
+			if not _dragging:
+				_drag_accum += event.relative.y
+				if absf(_drag_accum) <= 12.0:
+					return
+				# A vertical swipe belongs to the list, not the tile. Keep
+				# consuming the whole gesture so the camera does not pan too.
+				_dragging = true
+				_ignore_release = true
+			var scroll := _scroll_container()
+			if scroll != null:
+				scroll.scroll_vertical -= int(event.relative.y)
+			accept_event()
+			return
 		if _touch_blocked() and (event is InputEventScreenTouch or event is InputEventScreenDrag):
 			if event is InputEventScreenTouch and not event.pressed:
 				_holding = false
@@ -552,9 +599,10 @@ class BuildTile:
 				if event.button_index != MOUSE_BUTTON_LEFT:
 					return
 				if _holding:
+					var fire: bool = _hold_pos.distance_to(event.position) <= 24.0
 					_holding = false
 					accept_event()
-					if not _hold_fired and not _ignore_release:
+					if fire and not _hold_fired and not _ignore_release:
 						tapped.emit()
 					_hold_fired = false
 					_ignore_release = false
@@ -570,12 +618,15 @@ class BuildTile:
 				return
 			if not event.pressed:
 				if _holding and _hold_index == event.index:
+					var fire: bool = _hold_pos.distance_to(event.position) <= 28.0
 					_holding = false
 					accept_event()
-					if not _hold_fired and not _ignore_release:
+					if fire and not _hold_fired and not _ignore_release and not _dragging:
 						tapped.emit()
 					_hold_fired = false
 					_ignore_release = false
+					_dragging = false
+					_drag_accum = 0.0
 				return
 		else:
 			return
@@ -593,7 +644,17 @@ class BuildTile:
 		_hold_pos = event.position
 		_hold_fired = false
 		_ignore_release = false
+		_dragging = false
+		_drag_accum = 0.0
 		accept_event()
+
+	func _scroll_container() -> ScrollContainer:
+		var node := get_parent()
+		while node != null:
+			if node is ScrollContainer:
+				return node as ScrollContainer
+			node = node.get_parent()
+		return null
 
 	func _ready() -> void:
 		clip_contents = true
@@ -790,6 +851,7 @@ func setup(g) -> void:
 	layer = 5
 	_build_panel()
 	_build_overlay()
+	_build_market_overlay()
 	_rebuild_grid()
 	refresh()
 	_show_objective_toast()
@@ -1058,13 +1120,13 @@ func _build_screen_overlay() -> void:
 	quick_strip.anchor_top = 1.0
 	quick_strip.anchor_right = 1.0
 	quick_strip.anchor_bottom = 1.0
-	quick_strip.offset_left = -PANEL_WIDTH - 232.0
+	quick_strip.offset_left = -PANEL_WIDTH - 278.0
 	quick_strip.offset_right = -PANEL_WIDTH - 12.0
 	quick_strip.offset_top = -(quick_h + 8.0)
 	quick_strip.offset_bottom = -8.0
 	quick_strip.add_theme_constant_override("separation", 3)
 	ui.add_child(quick_strip)
-	for spec in [["BASE", "Focus the base", "focus_home"], ["ARMY", "Select all combat units", "select_all_army"], ["HARV", "Select harvesters", "select_all_harvesters"], ["BOX", "Next drag draws a selection box", "toggle_box"]]:
+	for spec in [["BASE", "Focus the base", "focus_home"], ["ARMY", "Select all combat units", "select_all_army"], ["HARV", "Select harvesters", "select_all_harvesters"], ["SPIN", "Orbit the 3D camera around the base", "toggle_camera_orbit"], ["BOX", "Next drag draws a selection box", "toggle_box"]]:
 		var b := Button.new()
 		b.text = String(spec[0])
 		b.tooltip_text = String(spec[1])
@@ -1092,6 +1154,140 @@ func _scroll_tween(scroll: ScrollContainer, target: int) -> void:
 	var tween := create_tween()
 	tween.tween_property(scroll, "scroll_vertical", clampi(target, 0, max_scroll), 0.14).set_trans(Tween.TRANS_SINE)
 
+## Compact touch-and-mouse volume slider used by the in-game OPTIONS panel.
+class VolumeBar:
+	extends Control
+
+	signal value_changed(value: float)
+
+	var value := 72.0
+	var _dragging := false
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		custom_minimum_size = Vector2(94.0, 24.0)
+		queue_redraw()
+
+	func set_value(v: float) -> void:
+		value = clampf(v, 0.0, 100.0)
+		queue_redraw()
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_dragging = true
+				_set_from_x(event.position.x)
+			else:
+				_dragging = false
+			accept_event()
+			return
+		if event is InputEventMouseMotion and _dragging:
+			_set_from_x(event.position.x)
+			accept_event()
+			return
+		if event is InputEventScreenTouch and event.index <= 0:
+			if event.pressed:
+				_dragging = true
+				_set_from_x(event.position.x)
+			else:
+				_dragging = false
+			accept_event()
+			return
+		if event is InputEventScreenDrag and event.index <= 0 and _dragging:
+			_set_from_x(event.position.x)
+			accept_event()
+
+	func _set_from_x(x: float) -> void:
+		var usable := maxf(size.x - 12.0, 1.0)
+		var next := clampf((x - 6.0) / usable, 0.0, 1.0) * 100.0
+		next = roundf(next / 5.0) * 5.0
+		if is_equal_approx(next, value):
+			return
+		value = next
+		queue_redraw()
+		value_changed.emit(value)
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var track := Rect2(6.0, h * 0.5 - 4.0, maxf(w - 12.0, 1.0), 8.0)
+		draw_rect(track, Color(0.035, 0.045, 0.040, 0.98))
+		draw_rect(track, Color(0.52, 0.43, 0.28, 0.75), false, 1.0)
+		var fill := track.size.x * value / 100.0
+		if fill > 0.0:
+			draw_rect(Rect2(track.position, Vector2(fill, track.size.y)), Color(0.79, 0.63, 0.31, 0.92))
+		for i in range(1, 10):
+			var x := track.position.x + track.size.x * float(i) / 10.0
+			draw_line(Vector2(x, track.position.y + 1.0), Vector2(x, track.end.y - 1.0),
+				Color(0.03, 0.03, 0.02, 0.55), 1.0)
+		var knob_x := track.position.x + fill
+		draw_circle(Vector2(knob_x, h * 0.5), 6.0, Color(0.06, 0.05, 0.04))
+		draw_circle(Vector2(knob_x, h * 0.5), 4.5, Color(0.91, 0.75, 0.40))
+		draw_circle(Vector2(knob_x - 1.0, h * 0.5 - 1.0), 1.5, Color(1.0, 0.92, 0.68))
+
+func _add_volume_row(parent: VBoxContainer, caption: String, initial: int, kind: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 7)
+	var label := Label.new()
+	label.text = caption
+	label.custom_minimum_size = Vector2(92.0, 24.0)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	label.add_theme_color_override("font_color", C_INFO)
+	row.add_child(label)
+	var bar := VolumeBar.new()
+	bar.set_value(float(initial))
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.tooltip_text = "Drag to set %s volume" % caption.to_lower()
+	row.add_child(bar)
+	var pct := Label.new()
+	pct.text = "%d%%" % initial
+	pct.custom_minimum_size = Vector2(38.0, 24.0)
+	pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	pct.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pct.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	pct.add_theme_color_override("font_color", C_GOLD_BRIGHT)
+	row.add_child(pct)
+	parent.add_child(row)
+	bar.value_changed.connect(func(v: float):
+		pct.text = "%d%%" % int(round(v))
+		var audio := get_node_or_null("/root/AudioManager")
+		if audio == null:
+			return
+		if kind == "music" and audio.has_method("set_music_volume"):
+			audio.call("set_music_volume", v / 100.0)
+		elif kind == "sfx" and audio.has_method("set_sfx_volume"):
+			audio.call("set_sfx_volume", v / 100.0)
+	)
+
+func _audio_level(method: String, fallback: int) -> int:
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio != null and audio.has_method(method):
+		return clampi(int(audio.call(method)), 0, 100)
+	return fallback
+
+func _make_command_button(parent: Control, caption: String, at: Vector2, tint: Color, tip: String) -> Button:
+	var b := Button.new()
+	b.text = caption
+	b.focus_mode = Control.FOCUS_NONE
+	b.position = at
+	b.size = Vector2(158.0, 38.0)
+	b.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	b.add_theme_color_override("font_color", C_OPTION_TEXT)
+	b.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	b.add_theme_constant_override("outline_size", 2)
+	b.add_theme_stylebox_override("normal", _button_style(tint))
+	b.add_theme_stylebox_override("hover", _button_style(tint.lightened(0.12)))
+	b.add_theme_stylebox_override("pressed", _button_style(tint.darkened(0.22)))
+	b.add_theme_stylebox_override("disabled", _button_style(Color(0.10, 0.09, 0.07, 0.75)))
+	b.tooltip_text = tip
+	b.visible = false
+	b.z_index = 3
+	parent.add_child(b)
+	return b
+
+
 func _build_top_bar() -> void:
 	var top := Control.new()
 	top.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1112,6 +1308,59 @@ func _build_top_bar() -> void:
 	options_button.add_theme_stylebox_override("pressed", _button_style(Color(0.06, 0.08, 0.07, 0.98)))
 	options_button.pressed.connect(func(): _tap(); _toggle_options())
 	top.add_child(options_button)
+
+	# Context upgrade / MCV actions sit under OPTIONS, clear of the radar and
+	# build columns. They are hidden unless the current selection can use them.
+	upgrade_button = Button.new()
+	upgrade_button.text = "UPGRADE"
+	upgrade_button.focus_mode = Control.FOCUS_NONE
+	upgrade_button.position = Vector2(12.0, 54.0)
+	upgrade_button.size = Vector2(158.0, 38.0)
+	upgrade_button.add_theme_font_size_override("font_size", GameDefs.fs(13))
+	upgrade_button.add_theme_color_override("font_color", C_OPTION_TEXT)
+	upgrade_button.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	upgrade_button.add_theme_constant_override("outline_size", 2)
+	upgrade_button.add_theme_stylebox_override("normal", _button_style(Color(0.20, 0.14, 0.07, 0.95)))
+	upgrade_button.add_theme_stylebox_override("hover", _button_style(Color(0.31, 0.22, 0.10, 0.98)))
+	upgrade_button.add_theme_stylebox_override("pressed", _button_style(Color(0.10, 0.07, 0.04, 0.98)))
+	upgrade_button.add_theme_stylebox_override("disabled", _button_style(Color(0.12, 0.10, 0.07, 0.80)))
+	upgrade_button.tooltip_text = "Upgrade this production building"
+	upgrade_button.visible = false
+	upgrade_button.z_index = 3
+	upgrade_button.pressed.connect(func(): _tap(); game.upgrade_selected_building())
+	top.add_child(upgrade_button)
+
+	deploy_button = Button.new()
+	deploy_button.text = "DEPLOY MCV"
+	deploy_button.focus_mode = Control.FOCUS_NONE
+	deploy_button.position = Vector2(12.0, 96.0)
+	deploy_button.size = Vector2(158.0, 38.0)
+	deploy_button.add_theme_font_size_override("font_size", GameDefs.fs(13))
+	deploy_button.add_theme_color_override("font_color", C_OPTION_TEXT)
+	deploy_button.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	deploy_button.add_theme_constant_override("outline_size", 2)
+	deploy_button.add_theme_stylebox_override("normal", _button_style(Color(0.10, 0.18, 0.14, 0.95)))
+	deploy_button.add_theme_stylebox_override("hover", _button_style(Color(0.16, 0.28, 0.21, 0.98)))
+	deploy_button.add_theme_stylebox_override("pressed", _button_style(Color(0.05, 0.10, 0.08, 0.98)))
+	deploy_button.tooltip_text = "Deploy this MCV on a clear 3x3 patch"
+	deploy_button.visible = false
+	deploy_button.z_index = 3
+	deploy_button.pressed.connect(func(): _tap(); game.deploy_selected_mcv())
+	top.add_child(deploy_button)
+
+	# Late-game command strip. Each button only appears once its building or
+	# House upgrade exists, so the opening missions keep the original HUD look.
+	starport_button = _make_command_button(top, "STARPORT", Vector2(12.0, 138.0),
+		Color(0.10, 0.16, 0.21, 0.95), "Open the CHOAM market")
+	starport_button.pressed.connect(func(): _tap(); toggle_market())
+
+	palace_button = _make_command_button(top, "HOUSE SPECIAL", Vector2(12.0, 180.0),
+		Color(0.25, 0.16, 0.06, 0.96), "Fire the powered Palace special power")
+	palace_button.pressed.connect(func(): _tap(); game.activate_palace_special())
+
+	orni_button = _make_command_button(top, "ORNITHOPTER", Vector2(12.0, 222.0),
+		Color(0.07, 0.20, 0.18, 0.96), "Call an Atreides Ornithopter airstrike")
+	orni_button.pressed.connect(func(): _tap(); game.begin_ornithopter_strike())
 
 	objective_plate = ObjectivePlate.new()
 	objective_plate.anchor_left = 0.0
@@ -1209,7 +1458,7 @@ func _build_top_bar() -> void:
 
 	options_popup = PanelContainer.new()
 	options_popup.position = Vector2(12.0, 54.0)
-	options_popup.size = Vector2(286.0, 392.0)
+	options_popup.size = Vector2(286.0, 492.0)
 	options_popup.z_index = 80
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.07, 0.07, 0.06, 0.985)
@@ -1231,11 +1480,31 @@ func _build_top_bar() -> void:
 	opt_title.add_theme_color_override("font_color", C_GOLD_BRIGHT)
 	opt_col.add_child(opt_title)
 	var opt_hint := Label.new()
-	opt_hint.text = "Drag to pan. Pinch to zoom. Tap a unit, then the ground."
+	opt_hint.text = "Drag to pan. Pinch to zoom. 3D: right-drag empty ground, Shift + middle-drag, or SPIN orbits."
 	opt_hint.add_theme_font_size_override("font_size", GameDefs.fs(12))
 	opt_hint.add_theme_color_override("font_color", C_INFO)
 	opt_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	opt_col.add_child(opt_hint)
+	var audio_heading := Label.new()
+	audio_heading.text = "AUDIO"
+	audio_heading.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	audio_heading.add_theme_color_override("font_color", C_GOLD)
+	opt_col.add_child(audio_heading)
+	_add_volume_row(opt_col, "MUSIC", _audio_level("music_percent", 72), "music")
+	_add_volume_row(opt_col, "SFX / VOICE", _audio_level("sfx_percent", 80), "sfx")
+	var graphics_heading := Label.new()
+	graphics_heading.text = "GRAPHICS"
+	graphics_heading.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	graphics_heading.add_theme_color_override("font_color", C_GOLD)
+	opt_col.add_child(graphics_heading)
+	graphics_button = TouchButton.new()
+	graphics_button.font_size = GameDefs.fs(13)
+	graphics_button.custom_minimum_size = Vector2(0.0, 38.0)
+	graphics_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	graphics_button.tooltip_text = "Switch renderer instantly; the battle simulation and progress are untouched"
+	graphics_button.pressed.connect(func(): _tap(); _toggle_graphics())
+	opt_col.add_child(graphics_button)
+	_update_graphics_option()
 	var resume := TouchButton.new()
 	resume.text = "RESUME"
 	resume.primary = true
@@ -1309,7 +1578,25 @@ func _toggle_options() -> void:
 		return
 	options_popup.visible = not options_popup.visible
 	if options_popup.visible:
+		_update_graphics_option()
 		options_popup.move_to_front()
+
+func _update_graphics_option() -> void:
+	if graphics_button == null:
+		return
+	var state = GameDefs.campaign
+	var modern := state != null and bool(state.call("is_modern_3d"))
+	graphics_button.text = "GRAPHICS: %s" % ("MODERN 3D" if modern else "CLASSIC 2D")
+	graphics_button.queue_redraw()
+
+func _toggle_graphics() -> void:
+	var state = GameDefs.campaign
+	if state == null:
+		return
+	var mode := String(state.call("toggle_graphics_mode"))
+	if game != null and game.has_method("set_graphics_mode"):
+		game.call("set_graphics_mode", mode)
+	_update_graphics_option()
 
 func _open_mission_briefing() -> void:
 	if game == null or not game.campaign_mission:
@@ -1335,6 +1622,9 @@ func _close_mission_briefing() -> void:
 	briefing_overlay = null
 	if game != null:
 		game.process_mode = briefing_prev_game_mode
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio != null and audio.has_method("play_battle_music"):
+		audio.call("play_battle_music")
 	process_mode = Node.PROCESS_MODE_INHERIT
 
 func briefing_open() -> bool:
@@ -1386,6 +1676,240 @@ func _build_overlay() -> void:
 	overlay_buttons.add_theme_constant_override("separation", 8)
 	overlay_buttons.custom_minimum_size = Vector2(360.0, 0.0)
 	box.add_child(overlay_buttons)
+
+# --------------------------------------------------------------- CHOAM trade
+
+func _build_market_overlay() -> void:
+	market_overlay = Control.new()
+	market_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	market_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	market_overlay.z_index = 40
+	market_overlay.visible = false
+	add_child(market_overlay)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.018, 0.020, 0.018, 0.80)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	market_overlay.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	market_overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(860.0, 0.0)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.070, 0.055, 0.036, 0.985)
+	panel_style.border_color = Color(0.68, 0.50, 0.24, 0.95)
+	panel_style.set_border_width_all(2)
+	panel_style.set_corner_radius_all(7)
+	panel_style.content_margin_left = 18.0
+	panel_style.content_margin_right = 18.0
+	panel_style.content_margin_top = 14.0
+	panel_style.content_margin_bottom = 14.0
+	panel.add_theme_stylebox_override("panel", panel_style)
+	center.add_child(panel)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	panel.add_child(col)
+
+	var head := HBoxContainer.new()
+	col.add_child(head)
+	var title := Label.new()
+	title.text = "CHOAM  MERCHANT  GUILD"
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", C_GOLD_BRIGHT)
+	title.add_theme_color_override("font_outline_color", Color(0.02, 0.012, 0.006, 0.95))
+	title.add_theme_constant_override("outline_size", 2)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	market_timer_label = Label.new()
+	market_timer_label.add_theme_font_size_override("font_size", GameDefs.fs(15))
+	market_timer_label.add_theme_color_override("font_color", C_CREAM)
+	market_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	head.add_child(market_timer_label)
+
+	var sub := Label.new()
+	sub.text = "LIMITED STOCK  ·  PRICES RE-ROLL EVERY 35s  ·  ALL LOTS ARRIVE BY CHOAM FRIGATE"
+	sub.add_theme_font_size_override("font_size", GameDefs.fs(12))
+	sub.add_theme_color_override("font_color", C_INFO)
+	col.add_child(sub)
+
+	var rule := ColorRect.new()
+	rule.color = Color(0.68, 0.50, 0.24, 0.55)
+	rule.custom_minimum_size = Vector2(0.0, 1.0)
+	col.add_child(rule)
+
+	market_rows = GridContainer.new()
+	market_rows.columns = 2
+	market_rows.add_theme_constant_override("h_separation", 8)
+	market_rows.add_theme_constant_override("v_separation", 6)
+	market_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(market_rows)
+
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 8)
+	col.add_child(foot)
+	market_footer_label = Label.new()
+	market_footer_label.add_theme_font_size_override("font_size", GameDefs.fs(13))
+	market_footer_label.add_theme_color_override("font_color", C_GOLD)
+	market_footer_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	market_footer_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	foot.add_child(market_footer_label)
+	var close := TouchButton.new()
+	close.text = "CLOSE"
+	close.font_size = GameDefs.fs(15)
+	close.accent = C_GOLD
+	close.custom_minimum_size = Vector2(150.0, 46.0)
+	close.pressed.connect(func(): _tap(); close_market())
+	foot.add_child(close)
+
+func market_open() -> bool:
+	return market_open_flag and market_overlay != null and market_overlay.visible
+
+func toggle_market() -> void:
+	if market_open():
+		close_market()
+	else:
+		open_market()
+
+func open_market() -> void:
+	if game == null or game.game_over or market_overlay == null:
+		return
+	if game._starport_for_market() == null:
+		game._say("A Starport is required to trade with CHOAM.")
+		return
+	game.cancel_special_target()
+	market_open_flag = true
+	market_overlay.visible = true
+	_sync_market_rows(true)
+	refresh_market()
+
+func close_market() -> void:
+	market_open_flag = false
+	if market_overlay != null:
+		market_overlay.visible = false
+
+func _sync_market_rows(force := false) -> void:
+	if not market_open() or game == null:
+		return
+	var ids: Array = game.choam_offers.keys()
+	ids.sort_custom(func(a, b): return int(GameDefs.UNITS[a]["cost"]) < int(GameDefs.UNITS[b]["cost"]))
+	if not force and ids == _market_offer_ids:
+		return
+	_market_offer_ids = ids.duplicate()
+	_market_price_labels.clear()
+	_market_stock_labels.clear()
+	_market_order_buttons.clear()
+	for child in market_rows.get_children():
+		market_rows.remove_child(child)
+		child.queue_free()
+	if ids.is_empty():
+		market_rows.columns = 1
+		var empty := Label.new()
+		empty.text = "No CHOAM lots match this mission's available production buildings."
+		empty.add_theme_font_size_override("font_size", GameDefs.fs(14))
+		empty.add_theme_color_override("font_color", C_INFO)
+		empty.custom_minimum_size = Vector2(820.0, 70.0)
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		market_rows.add_child(empty)
+		return
+	market_rows.columns = 2
+	for id in ids:
+		var unit_id := String(id)
+		var card := PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color(0.11, 0.085, 0.055, 0.94)
+		card_style.border_color = Color(0.37, 0.28, 0.16, 0.9)
+		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(3)
+		card_style.content_margin_left = 7.0
+		card_style.content_margin_right = 7.0
+		card_style.content_margin_top = 5.0
+		card_style.content_margin_bottom = 5.0
+		card.add_theme_stylebox_override("panel", card_style)
+		market_rows.add_child(card)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 7)
+		card.add_child(h)
+		var icon := TextureRect.new()
+		icon.custom_minimum_size = Vector2(46.0, 46.0)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon.texture = UnitArt.icon(unit_id)
+		if icon.texture == null and BuildingArt.icon(unit_id) != null:
+			icon.texture = BuildingArt.icon(unit_id)
+		h.add_child(icon)
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 0)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(info)
+		var name_label := Label.new()
+		name_label.text = String(GameDefs.UNITS[unit_id]["name"]).to_upper()
+		name_label.add_theme_font_size_override("font_size", GameDefs.fs(13))
+		name_label.add_theme_color_override("font_color", C_CREAM)
+		name_label.clip_text = true
+		info.add_child(name_label)
+		var price_label := Label.new()
+		price_label.add_theme_font_size_override("font_size", GameDefs.fs(12))
+		price_label.add_theme_color_override("font_color", C_GOLD_BRIGHT)
+		info.add_child(price_label)
+		_market_price_labels[unit_id] = price_label
+		var stock_label := Label.new()
+		stock_label.add_theme_font_size_override("font_size", GameDefs.fs(11))
+		stock_label.add_theme_color_override("font_color", C_INFO)
+		info.add_child(stock_label)
+		_market_stock_labels[unit_id] = stock_label
+		var order := TouchButton.new()
+		order.text = "ORDER"
+		order.font_size = GameDefs.fs(12)
+		order.accent = C_GOLD_BRIGHT
+		order.custom_minimum_size = Vector2(104.0, 44.0)
+		order.pressed.connect(func(): _on_market_order(unit_id))
+		h.add_child(order)
+		_market_order_buttons[unit_id] = order
+
+func _on_market_order(id: String) -> void:
+	_tap()
+	if game == null:
+		return
+	game.order_choam(id)
+	refresh_market()
+	refresh()
+
+func refresh_market() -> void:
+	if not market_open() or game == null:
+		return
+	_sync_market_rows()
+	market_timer_label.text = "REFRESH  %ds" % int(ceil(game.choam_refresh_left))
+	for id in _market_offer_ids:
+		var unit_id := String(id)
+		var offer: Dictionary = game.choam_offer(unit_id)
+		if offer.is_empty():
+			continue
+		var price := int(offer["price"])
+		var stock := int(offer["stock"])
+		var spike := bool(offer["spike"])
+		if _market_price_labels.has(unit_id):
+			var price_label: Label = _market_price_labels[unit_id]
+			price_label.text = "%d CR  ·  BASE %d" % [price, int(offer["base"])]
+			price_label.add_theme_color_override("font_color", Color(0.98, 0.52, 0.34) if spike else C_GOLD_BRIGHT)
+		if _market_stock_labels.has(unit_id):
+			var stock_label: Label = _market_stock_labels[unit_id]
+			stock_label.text = "HIGH DEMAND  ·  STOCK %d" % stock if spike else "STOCK  %d" % stock
+			stock_label.add_theme_color_override("font_color", Color(0.95, 0.50, 0.34) if spike else C_INFO)
+		if _market_order_buttons.has(unit_id):
+			var order: TouchButton = _market_order_buttons[unit_id]
+			order.subtext = "%d CR" % price
+			order.text = "ORDER"
+			order.enabled = stock > 0 and int(game.credits[0]) >= price and not game.game_over
+			order.queue_redraw()
+	var frigate_text := "FRIGATE INBOUND" if game.choam_frigate != null and is_instance_valid(game.choam_frigate) else "FRIGATE READY ON CALL"
+	market_footer_label.text = "CREDITS  %d     ·     %s" % [int(game.credits[0]), frigate_text]
 
 # ------------------------------------------------------------------- actions
 
@@ -1506,6 +2030,7 @@ func _on_item(kind: String, id: String) -> void:
 	refresh()
 
 func show_result(win: bool, body: String, buttons: Array = [], title := "") -> void:
+	close_market()
 	overlay.visible = true
 	if toast_plate != null:
 		toast_plate.visible = false
@@ -1537,15 +2062,18 @@ func show_result(win: bool, body: String, buttons: Array = [], title := "") -> v
 		overlay_buttons.add_child(b)
 
 func overlay_visible() -> bool:
-	return overlay != null and overlay.visible
+	return (overlay != null and overlay.visible) or market_open()
 
 func refresh() -> void:
 	if game == null or credits_label == null:
 		return
+	var spice_cap: int = game.spice_capacity(0)
 	credits_label.text = "%d CR" % int(game.credits[0])
+	if credits_plate != null:
+		credits_plate.tooltip_text = "Spice storage %d / %d CR" % [int(game.credits[0]), spice_cap]
 	var out: float = game.power_out(0)
 	var used: float = game.power_used(0)
-	info_label.text = "UNITS %d   SPICE %d   GRID %d/%d" % [game.unit_count(0), game.harvested, int(out), int(used)]
+	info_label.text = "UNITS %d   STORAGE %d/%d   GRID %d/%d" % [game.unit_count(0), int(game.credits[0]), spice_cap, int(out), int(used)]
 	info_label.add_theme_color_override("font_color", C_INFO if out + 0.01 >= used else Color(0.98, 0.48, 0.34))
 	var msgs: Array = game.recent_messages()
 	log_label.text = String(msgs[msgs.size() - 1]) if not msgs.is_empty() else ""
@@ -1567,14 +2095,82 @@ func refresh() -> void:
 			]
 			mission_banner.add_theme_color_override("font_color", C_CREAM)
 			objective_plate.accent = C_GOLD_BRIGHT
-	cancel_button.visible = game.placing != "" or game.brush != ""
+	cancel_button.visible = game.placing != "" or game.brush != "" or game.special_target_mode != ""
 	if game.placing != "":
 		cancel_button.text = "KEEP READY"
+	elif game.special_target_mode != "":
+		cancel_button.text = "CANCEL POWER"
 	elif game.brush != "":
 		cancel_button.text = "CANCEL"
 	var touch_suppressed: bool = game.camera != null and game.camera.is_gesture_suppressed()
 	var has_build: bool = game.selected_build != null and is_instance_valid(game.selected_build) and not game.selected_build.dead
 	var has_units: bool = not game.selected.is_empty()
+	if upgrade_button != null:
+		var up: Dictionary = GameDefs.upgrade_for(String(game.selected_build.type_id)) if has_build else {}
+		var up_house := String(up.get("house", ""))
+		var house_ok: bool = up_house == "" or GameDefs.house_for_team(0) == up_house
+		var tier_ok: bool = has_build and GameDefs.upgrade_tech(String(game.selected_build.type_id)) <= GameDefs.tech_level
+		var can_show_upgrade: bool = has_build and not up.is_empty() and house_ok and tier_ok
+		upgrade_button.visible = can_show_upgrade and not game.game_over
+		if can_show_upgrade:
+			var b = game.selected_build
+			if b.upgraded:
+				upgrade_button.text = "UPGRADED"
+				upgrade_button.disabled = true
+			elif b.upgrading:
+				upgrade_button.text = "UPGRADING %d%%" % int(round(b.upgrade_progress() * 100.0))
+				upgrade_button.disabled = true
+			else:
+				var cost := int(up.get("cost", 0))
+				upgrade_button.text = ("ORNITHOPTER · %d CR" if String(b.type_id) == "hightech" else "UPGRADE · %d CR") % cost
+				upgrade_button.disabled = int(game.credits[0]) < cost or not game.can_upgrade_building(b)
+				upgrade_button.tooltip_text = String(up.get("desc", "Upgrade this production building"))
+	if starport_button != null:
+		starport_button.visible = game._building_of(0, "starport") != null and not game.game_over
+		starport_button.text = "CLOSE  CHOAM" if market_open() else "STARPORT  ·  MARKET"
+	if palace_button != null:
+		var palace = game.palace_building(0)
+		palace_button.visible = palace != null and not game.game_over
+		if palace != null:
+			var pname: String = game.palace_special_name()
+			var powered: bool = game.palace_powered(0)
+			var ready: bool = game.palace_special_ready()
+			if not powered:
+				palace_button.text = "PALACE · NO POWER"
+				palace_button.disabled = true
+			elif game.special_target_mode == "death_hand":
+				palace_button.text = "TAP MAP TARGET"
+				palace_button.disabled = false
+			elif game.palace_special_cd > 0.0:
+				palace_button.text = "%s  %ds" % [pname, int(ceil(game.palace_special_cd))]
+				palace_button.disabled = true
+			else:
+				palace_button.text = "%s  READY" % pname
+				palace_button.disabled = false
+			var glow: float = 0.86 + 0.14 * absf(sin(Time.get_ticks_msec() * 0.005)) if ready else 1.0
+			palace_button.modulate = Color(glow, glow * 0.96, glow * 0.72)
+	if orni_button != null:
+		orni_button.visible = game.has_ornithopter_upgrade(0) and not game.game_over
+		if orni_button.visible:
+			var air_ready: bool = game.ornithopter_ready()
+			if game.special_target_mode == "ornithopter":
+				orni_button.text = "TAP MAP TARGET"
+				orni_button.disabled = false
+			elif game.ornithopter_cd > 0.0:
+				orni_button.text = "ORNITHOPTER  %ds" % int(ceil(game.ornithopter_cd))
+				orni_button.disabled = true
+			elif not game.has_power(0):
+				orni_button.text = "ORNI · NO POWER"
+				orni_button.disabled = true
+			else:
+				orni_button.text = "ORNITHOPTER  READY"
+				orni_button.disabled = false
+			var air_glow: float = 0.86 + 0.14 * absf(sin(Time.get_ticks_msec() * 0.005)) if air_ready else 1.0
+			orni_button.modulate = Color(air_glow * 0.82, air_glow * 1.0, air_glow * 0.92)
+	if deploy_button != null:
+		var mcv_selected: bool = game.selected.size() == 1 and is_instance_valid(game.selected[0]) \
+			and String(game.selected[0].type_id) == "mcv"
+		deploy_button.visible = mcv_selected and not game.game_over
 	if repair_button != null:
 		repair_button.active = game.repair_mode
 		repair_button.queue_redraw()
@@ -1617,6 +2213,11 @@ func refresh() -> void:
 		tile.queue_redraw()
 
 func _process(delta: float) -> void:
+	if market_open_flag:
+		if game == null or game.game_over:
+			close_market()
+		else:
+			refresh_market()
 	if toast_timer > 0.0 and toast_plate != null and toast_plate.visible:
 		toast_timer = maxf(0.0, toast_timer - delta)
 		if toast_timer <= 0.0:
@@ -1627,6 +2228,18 @@ func _process(delta: float) -> void:
 	if refresh_timer >= 0.08:
 		refresh_timer = 0.0
 		refresh()
+
+## General-purpose EVA style banner used by storage and upgrade events. It uses
+## the same touch-safe toast plate as objective notifications.
+func flash_message(text: String, duration := 2.5) -> void:
+	if toast_plate == null:
+		return
+	toast_label.text = text
+	toast_plate.accent = C_GOLD_BRIGHT
+	toast_plate.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	toast_plate.visible = true
+	toast_timer = maxf(duration, 0.4)
+	toast_plate.queue_redraw()
 
 func _show_objective_toast() -> void:
 	if game == null or toast_plate == null or not game.campaign_mission:

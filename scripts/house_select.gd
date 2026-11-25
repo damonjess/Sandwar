@@ -18,6 +18,7 @@ var _cards: Array = []
 var _new_button: TouchButton
 var _continue_button: TouchButton
 var _skirmish_button: TouchButton
+var _graphics_button: TouchButton
 var _status_label: Label
 var _actions: Array = []
 var _action_focus := 0
@@ -35,6 +36,9 @@ func _ready() -> void:
 		_selected_house = String(state.get("player_house"))
 	_build()
 	_update_actions()
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio != null and audio.has_method("play_menu_music"):
+		audio.call("play_menu_music")
 
 func _build() -> void:
 	var backdrop := Backdrop.new()
@@ -119,6 +123,39 @@ func _build() -> void:
 	chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(chrome)
+
+	# The presentation switch belongs to the player's shared settings, so it is
+	# available before a campaign or skirmish starts as well as inside battle.
+	_graphics_button = TouchButton.new()
+	_graphics_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_graphics_button.offset_left = -242.0
+	_graphics_button.offset_right = -22.0
+	_graphics_button.offset_top = 16.0
+	_graphics_button.offset_bottom = 74.0
+	_graphics_button.font_size = GameDefs.fs(13)
+	_graphics_button.tooltip_text = "Switch the live battlefield between Classic 2D and Modern 3D"
+	_graphics_button.pressed.connect(_toggle_graphics)
+	add_child(_graphics_button)
+	_update_graphics_button()
+
+func _update_graphics_button() -> void:
+	if _graphics_button == null:
+		return
+	var state = GameDefs.campaign
+	var modern := state != null and bool(state.call("is_modern_3d"))
+	_graphics_button.text = "GRAPHICS: %s" % ("MODERN 3D" if modern else "CLASSIC 2D")
+	_graphics_button.subtext = "tap to switch renderer"
+	_graphics_button.queue_redraw()
+
+func _toggle_graphics() -> void:
+	var state = GameDefs.campaign
+	if state == null:
+		return
+	state.call("toggle_graphics_mode")
+	_update_graphics_button()
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio != null and audio.has_method("play_ui"):
+		audio.call("play_ui", "ui_click", -10.0)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _launching or not (event is InputEventKey):

@@ -26,7 +26,7 @@ const MENTAT_ORDERS := {
 	],
 	"harkonnen": [
 		"The Baron has granted you this rock, and he expects a return on his patience. Strip the spice from it, crush the Atreides scouts, and let the survivors crawl home with tales of Harkonnen mercy. There is no mercy.",
-		"Atreides raiders are sniffing around our lines like jackals. Build the light factory, roll out the Quads, and grind them into the sand before their reports reach the Duke. Speed is a tool; terror is the objective.",
+		"Atreides raiders are sniffing around our lines like jackals. Build the light factory, roll out the Trikes, and grind them into the sand before their reports reach the Duke. Speed is a tool; terror is the objective.",
 		"Their frontier outpost squats on ground that belongs to House Harkonnen. Bring up the combat tanks, shatter their turrets and walls, and leave nothing standing that can shelter a flag. The Baron does not pay for prisoners.",
 		"The contested field is fat with spice, and the Atreides are already digging in. Harvest four thousand credits while your tanks hold the center, then bury their claim under our tracks. Greed is only a sin when it is weak.",
 		"The enemy has sent their elite guard to hold this front. They will die tired. Take the Sardaukar and your heaviest armour into their fortress and make an example that will echo across the planet.",
@@ -63,8 +63,8 @@ const TIER_TEMPLATES := [
 		"brief": "A light factory turns the beachhead into an army. Break the raiders.",
 		"objective": {"type": "destroy_units"},
 		"objective_text": "Destroy every enemy unit in the sector.",
-		"unlock": "Light Factory · Rocket Trooper · {light}",
-		"unlock_icons": [["structure", "factory"], ["unit", "rocket"], ["unit", "@scout"]],
+		"unlock": "Light Factory · Spice Silo · Outpost · Barracks Upgrade · Rocket Trooper · {light}",
+		"unlock_icons": [["structure", "factory"], ["structure", "silo"], ["structure", "outpost"], ["unit", "rocket"], ["unit", "@scout"]],
 		"map_size": 46,
 		"starting_credits": 2400,
 		"base_preset": "outpost",
@@ -76,8 +76,8 @@ const TIER_TEMPLATES := [
 		"brief": "The enemy has dug in. Fortify the line and bring up armour.",
 		"objective": {"type": "destroy_structures"},
 		"objective_text": "Destroy the enemy outpost.",
-		"unlock": "Gun Turret · Wall · {tank}",
-		"unlock_icons": [["structure", "turret"], ["brush", "wall"], ["unit", "@tank"]],
+		"unlock": "Heavy Factory · Gun Turret · Wall · Light Factory Upgrade · {tank}",
+		"unlock_icons": [["structure", "heavy_factory"], ["structure", "turret"], ["brush", "wall"], ["unit", "@tank"]],
 		"map_size": 48,
 		"starting_credits": 2800,
 		"base_preset": "frontier",
@@ -89,8 +89,8 @@ const TIER_TEMPLATES := [
 		"brief": "The central field is rich and exposed. Hold it long enough to fill the silos.",
 		"objective": {"type": "harvest", "credits": 4000},
 		"objective_text": "Harvest 4,000 credits from the contested central spice field.",
-		"unlock": "Rocket Turret · Siege Tank",
-		"unlock_icons": [["structure", "rocketturret"], ["unit", "tank"]],
+		"unlock": "Repair Pad · Rocket Turret · Heavy Factory Upgrade · Siege Tank · MCV",
+		"unlock_icons": [["structure", "repair_pad"], ["structure", "rocketturret"], ["unit", "tank"], ["unit", "mcv"]],
 		"map_size": 52,
 		"starting_credits": 3200,
 		"base_preset": "contested",
@@ -102,8 +102,8 @@ const TIER_TEMPLATES := [
 		"brief": "House elites take the field. Crack the fortified base before it masses.",
 		"objective": {"type": "destroy_all"},
 		"objective_text": "Destroy every enemy structure and unit.",
-		"unlock": "{elite}",
-		"unlock_icons": [["unit", "@elite"]],
+		"unlock": "Starport · High Tech Factory · Carryall · {elite}",
+		"unlock_icons": [["structure", "starport"], ["structure", "hightech"], ["unit", "carryall"], ["unit", "@elite"]],
 		"map_size": 52,
 		"starting_credits": 3600,
 		"base_preset": "fortress",
@@ -115,8 +115,8 @@ const TIER_TEMPLATES := [
 		"brief": "The signature super-vehicle is ready. Break the enemy's forward fortress.",
 		"objective": {"type": "destroy_all"},
 		"objective_text": "Destroy the fortified enemy base — every structure and unit.",
-		"unlock": "{super}",
-		"unlock_icons": [["unit", "@super"]],
+		"unlock": "IX Research Centre · {super}",
+		"unlock_icons": [["structure", "ix"], ["unit", "@super"]],
 		"map_size": 56,
 		"starting_credits": 4200,
 		"base_preset": "stronghold",
@@ -128,9 +128,9 @@ const TIER_TEMPLATES := [
 		"brief": "The rival House has fortified the Imperial Basin. End the war for Arrakis.",
 		"objective": {"type": "stronghold"},
 		"objective_text": "Destroy the rival House stronghold in the Imperial Basin.",
-		"unlock": "Full tech tree · every House unique",
+		"unlock": "Palace · House Superweapon · Full tech tree",
 		"unlock_title": "FULL TECH TREE",
-		"unlock_icons": [["unit", "@scout"], ["unit", "@tank"], ["unit", "tank"], ["unit", "@elite"], ["unit", "@super"]],
+		"unlock_icons": [["structure", "palace"], ["structure", "starport"], ["structure", "hightech"], ["structure", "ix"], ["unit", "@super"]],
 		"map_size": 60,
 		"starting_credits": 5000,
 		"base_preset": "citadel",
@@ -144,7 +144,7 @@ const TIER_TEMPLATES := [
 const BASE_PRESETS := {
 	"landing": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 3], ["barracks", 0, 4]],
 			"units": [["harvester", 8, 6], ["infantry", 2, 6], ["infantry", 3, 6]],
 		},
 		"enemy": {
@@ -154,61 +154,61 @@ const BASE_PRESETS := {
 	},
 	"outpost": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["outpost", 10, 2]],
 			"units": [["harvester", 8, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["scout", 2, 7]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 3]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["outpost", 10, 2], ["turret", 7, 3]],
 			"units": [["harvester", 8, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["scout", 2, 7], ["scout", 4, 7]],
 		},
 	},
 	"frontier": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["turret", 7, 4]],
 			"units": [["harvester", 8, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["scout", 2, 7], ["tank", 3, 7]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["turret", 7, 4], ["turret", 0, 6]],
 			"units": [["harvester", 8, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["scout", 2, 7], ["tank", 3, 7]],
 		},
 	},
 	"contested": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["rocketturret", 0, 7]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["turret", 7, 4], ["rocketturret", 0, 7]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["scout", 2, 7], ["tank", 3, 7], ["tank", 7, 6]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["scout", 2, 7], ["tank", 3, 7], ["tank", 7, 7]],
 		},
 	},
 	"fortress": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["windtrap", 12, 7], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["hightech", 12, 2], ["starport", 4, 8], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["rocketturret", 0, 7]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 8, 2], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["rocketturret", 0, 7]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7], ["scout", 4, 7]],
 		},
 	},
 	"stronghold": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6], ["rocketturret", 8, 4]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["windtrap", 14, 2], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 11, 0], ["ix", 12, 7], ["turret", 7, 4], ["turret", 0, 6], ["rocketturret", 7, 6], ["rocketturret", 8, 4]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7], ["super", 8, 7]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["barracks", 2, 3], ["factory", 4, 5], ["factory", 8, 3], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["turret", 9, 5], ["rocketturret", 0, 7], ["rocketturret", 8, 6]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 4], ["barracks", 2, 3], ["factory", 4, 5], ["factory", 8, 3], ["heavy_factory", 11, 0], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["turret", 9, 5], ["rocketturret", 0, 7], ["rocketturret", 8, 6]],
 			"units": [["harvester", 8, 7], ["harvester", 10, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7], ["super", 8, 5]],
 		},
 	},
 	"citadel": {
 		"player": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["refinery", 5, 0], ["barracks", 0, 4], ["factory", 4, 5], ["turret", 7, 4], ["turret", 0, 6], ["factory", 8, 0], ["rocketturret", 7, 6], ["rocketturret", 8, 4]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["windtrap", 15, 2], ["windtrap", 15, 10], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 4], ["factory", 4, 5], ["heavy_factory", 11, 1], ["hightech", 4, 8], ["starport", 8, 9], ["ix", 10, 7], ["palace", 14, 6], ["repair_pad", 0, 9], ["turret", 7, 4], ["turret", 0, 6], ["factory", 8, 0], ["rocketturret", 7, 6], ["rocketturret", 8, 4]],
 			"units": [["harvester", 8, 6], ["harvester", 9, 5], ["infantry", 2, 6], ["infantry", 3, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7], ["super", 8, 7]],
 		},
 		"enemy": {
-			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["windtrap", 8, 0], ["refinery", 5, 0], ["barracks", 0, 3], ["barracks", 2, 3], ["factory", 4, 5], ["factory", 8, 3], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["turret", 9, 5], ["rocketturret", 0, 7], ["rocketturret", 8, 6], ["rocketturret", 10, 5]],
+			"buildings": [["cy", 0, 0], ["windtrap", 4, 3], ["windtrap", 8, 0], ["refinery", 5, 0], ["silo", 8, 5], ["silo", 12, 5], ["barracks", 0, 3], ["barracks", 2, 3], ["factory", 4, 5], ["factory", 8, 3], ["heavy_factory", 11, 1], ["turret", 7, 4], ["turret", 0, 6], ["turret", 7, 6], ["turret", 9, 5], ["rocketturret", 0, 7], ["rocketturret", 8, 6], ["rocketturret", 10, 5]],
 			"units": [["harvester", 8, 7], ["harvester", 10, 6], ["infantry", 2, 6], ["infantry", 3, 6], ["elite", 1, 6], ["elite", 1, 7], ["tank", 3, 7], ["tank", 7, 7], ["super", 8, 5], ["super", 9, 7]],
 		},
 	},

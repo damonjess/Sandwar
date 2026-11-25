@@ -26,6 +26,18 @@ var _salvo_timer := 0.0
 var _salvo_target = null
 var repairing := false
 var repair_debt := 0.0
+## Dune 2000 foundations: rock without a concrete slab cannot support a full
+## structure. The footprint ratio caps its settled health, and repairs can push
+## it above that cap only for the desert to wear it back down again.
+var paved_ratio := 1.0
+var unpaved_hp_cap := 500.0
+var repair_exposed := false
+## One classic upgrade tier. The timer lives on the building so the sidebar
+## can show live progress even when the structure is not selected.
+var upgraded := false
+var upgrading := false
+var upgrade_left := 0.0
+var upgrade_total := 1.0
 ## Production rally destination set from the sidebar. The Building remains a
 ## static structure; this only changes where its completed units emerge.
 var has_rally := false
@@ -35,6 +47,10 @@ var rally_point := Vector2.ZERO
 ## head on top of the fixed bunker base.
 var view = null
 var turret_head: Sprite2D = null
+## Authoritative top-left footprint tile, captured when the structure is
+## placed. Deriving it back from the sprite rect lets float rounding shift a
+## 2x2 or 3x3 block by one tile, which left a walkable strip on the pad.
+var origin_tile := Vector2i(-1, -1)
 
 func configure(id: String, team_id: int, g) -> void:
 	type_id = id
@@ -45,6 +61,7 @@ func configure(id: String, team_id: int, g) -> void:
 	size_px = float(maxi(span.x, span.y) * GameDefs.TILE)
 	max_hp = float(cfg["hp"])
 	hp = max_hp
+	unpaved_hp_cap = max_hp
 	z_index = 0
 	var scene_path := GameDefs.scene_of(id)
 	if scene_path != "" and ResourceLoader.exists(scene_path):
@@ -102,17 +119,33 @@ func world_rect() -> Rect2:
 
 ## Top-left tile occupied by the structure footprint.
 func tile_origin() -> Vector2i:
+	if origin_tile.x >= 0 and origin_tile.y >= 0:
+		return origin_tile
 	if game != null and game.terrain != null:
 		return game.terrain.tile_of(world_rect().position)
 	return Vector2i(roundi(global_position.x / float(GameDefs.TILE) - float(span.x) * 0.5),
 		roundi(global_position.y / float(GameDefs.TILE) - float(span.y) * 0.5))
 
+## Highest visible roof pixel for this structure, in the Building's local
+## space. Measured from the scaled baked sprite rather than a constant, so a
+## 3x3 yard, 2x2 factory and 1x1 turret all get a snug bar at their own height.
+func visual_top() -> float:
+	# Ask the live view for its measured, scale-aware roof line. Falling back
+	# to the shared measurement keeps the bar correct before the view is ready.
+	if view is StructureView:
+		return (view as StructureView).visible_top()
+	return BuildingArt.visual_top(type_id, BuildingArt.WORLD_SPRITE_SCALE)
+
 func set_wall_mask(mask: int) -> void:
 	if view != null and view.has_method("set_wall_mask"):
 		view.set_wall_mask(mask)
 
-func take_damage(amount: float) -> void:
+## `weapon` lets concrete walls enforce their classic immunity. An empty id
+## represents scripted environmental damage and still hurts them.
+func take_damage(amount: float, weapon := "") -> void:
 	if dead:
+		return
+	if type_id == "wall" and GameDefs.wall_immune(weapon):
 		return
 	hp -= amount
 	if game != null:
@@ -130,9 +163,50 @@ func die() -> void:
 		game.on_building_destroyed(self)
 	queue_free()
 
+func _tick_upgrade(delta: float) -> void:
+	if not upgrading:
+		return
+	upgrade_left = maxf(0.0, upgrade_left - delta)
+	if upgrade_left > 0.0:
+		return
+	upgrading = false
+	upgraded = true
+	if game != null:
+		game.on_building_upgraded(self)
+	queue_redraw()
+
+## Unpaved foundations settle back to their weaker cap after a repair. Fully
+## paved structures have cap == max and never wear.
+func _tick_foundation_wear(delta: float) -> void:
+	if repairing or not repair_exposed or unpaved_hp_cap >= max_hp - 0.5:
+		return
+	if hp <= unpaved_hp_cap + 0.05:
+		repair_exposed = false
+		return
+	hp = maxf(unpaved_hp_cap, hp - max_hp * 0.006 * delta)
+	queue_redraw()
+
+func can_upgrade() -> bool:
+	return not upgraded and not upgrading and not GameDefs.upgrade_for(type_id).is_empty()
+
+func upgrade_progress() -> float:
+	if upgraded:
+		return 1.0
+	if not upgrading:
+		return 0.0
+	return clampf(1.0 - upgrade_left / maxf(upgrade_total, 0.01), 0.0, 1.0)
+
+func begin_upgrade(seconds: float) -> void:
+	upgrading = true
+	upgrade_total = maxf(seconds, 0.01)
+	upgrade_left = upgrade_total
+	queue_redraw()
+
 func _process(delta: float) -> void:
 	if dead or game == null:
 		return
+	_tick_upgrade(delta)
+	_tick_foundation_wear(delta)
 	if view != null and view.has_method("set_damage"):
 		# Baked art swaps to its battle-damaged row under half health.
 		view.set_damage(clampf(1.0 - hp / max_hp, 0.0, 1.0))
@@ -169,7 +243,13 @@ func _process(delta: float) -> void:
 		_salvo_left = 0
 		queue_redraw()
 		return
-	var target = game.nearest_enemy(global_position, team, float(cfg["range"]))
+	# Rocket turrets prioritise aircraft (Ornithopters) inside their envelope;
+	# gun turrets have no anti-air capability and continue to ignore them.
+	var target = null
+	if type_id == "rocketturret":
+		target = game.nearest_air_target(global_position, team, float(cfg["range"]))
+	if target == null:
+		target = game.nearest_enemy(global_position, team, float(cfg["range"]))
 	if target != null:
 		var want: float = (target.global_position - global_position).angle()
 		var turn_rate := float(cfg.get("turn_rate", 8.0))
@@ -260,6 +340,17 @@ func _draw() -> void:
 		draw_circle(lamp, 1.8, Color(1.0, 0.82, 0.50, blink))
 	if bool(cfg.get("power_dependent", false)) and game != null and not game.has_power(team):
 		_draw_power_badge()
+	if upgraded:
+		# A compact gold chevron above the roof tells the owner at a glance that
+		# this building's advanced roster is unlocked.
+		var top := visual_top() - 7.0
+		var p := Vector2(size_px * 0.30, top)
+		for i in 2:
+			var y := p.y + float(i) * 4.0
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(p.x - 5.0, y), Vector2(p.x, y - 4.0), Vector2(p.x + 5.0, y),
+				Vector2(p.x + 5.0, y - 2.0), Vector2(p.x, y - 6.0), Vector2(p.x - 5.0, y - 2.0),
+			]), Color(1.0, 0.78, 0.26, 0.92))
 	if game != null and game.selected_build == self:
 		var box := Vector2(span) * float(GameDefs.TILE)
 		var sel := Rect2(-box * 0.5, box)
@@ -309,32 +400,29 @@ func _draw_health_bar() -> void:
 	if hp >= max_hp and not selected_now:
 		return
 	var w := Vector2(span).x * float(GameDefs.TILE) * 0.9
-	var y := -size_px * 0.5 - 4.0
-	if view != null and "art_top" in view:
-		y = float(view.art_top) - 9.0
+	# A tight 10 px of air over the measured roof, not a hand-tuned constant.
+	var y := visual_top() - 10.0
 	var ratio := clampf(hp / maxf(max_hp, 1.0), 0.0, 1.0)
-	var col := Color(0.95, 0.25, 0.18)
+	var col := Color(0.94, 0.22, 0.14)
 	if ratio > 0.66:
-		col = Color(0.42, 0.92, 0.32)
+		col = Color(0.38, 0.88, 0.26)
 	elif ratio > 0.33:
-		col = Color(0.96, 0.78, 0.20)
+		col = Color(0.98, 0.78, 0.12)
 	if repairing:
 		col = col.lerp(Color(0.30, 0.75, 1.0), 0.35)
 	var segments := 10
 	var gap := 1.0
 	var seg_w := (w - gap * float(segments - 1)) / float(segments)
-	draw_rect(Rect2(Vector2(-w * 0.5 - 2.0, y - 2.0), Vector2(w + 4.0, 8.0)), Color(0.02, 0.02, 0.02, 0.78))
+	draw_rect(Rect2(Vector2(-w * 0.5 - 2.0, y - 1.5), Vector2(w + 4.0, 6.5)), Color(0.02, 0.02, 0.02, 0.82))
 	for i in segments:
 		var lit := float(i + 1) / float(segments) <= ratio + 0.001
 		var x := -w * 0.5 + float(i) * (seg_w + gap)
-		draw_rect(Rect2(Vector2(x, y), Vector2(seg_w, 4.0)), col if lit else Color(0.13, 0.10, 0.07, 0.92))
-	draw_rect(Rect2(Vector2(-w * 0.5 - 2.0, y - 2.0), Vector2(w + 4.0, 8.0)), Color(0.02, 0.02, 0.02, 0.95), false, 1.0)
+		draw_rect(Rect2(Vector2(x, y), Vector2(seg_w, 3.0)), col if lit else Color(0.12, 0.09, 0.065, 0.94))
+	draw_rect(Rect2(Vector2(-w * 0.5 - 2.0, y - 1.5), Vector2(w + 4.0, 6.5)), Color(0.02, 0.02, 0.02, 0.98), false, 1.0)
 
 func _draw_power_badge() -> void:
 	var pulse := 0.55 + 0.45 * absf(sin(Time.get_ticks_msec() * 0.008))
-	var top := -size_px * 0.5 - 18.0
-	if view != null and "art_top" in view:
-		top = float(view.art_top) - 12.0
+	var top := visual_top() - 16.0
 	var p := Vector2(size_px * 0.39, top)
 	draw_circle(p, 9.0, Color(0.05, 0.04, 0.02, 0.92))
 	draw_circle(p, 8.0, Color(0.96, 0.70, 0.12, pulse), false, 1.8)

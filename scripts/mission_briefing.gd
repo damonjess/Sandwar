@@ -37,7 +37,9 @@ var transmission_label: Label
 var skip_hint: Label
 var proceed_button: TouchButton
 var back_button: TouchButton
+var replay_button: TouchButton
 var left_panel: PanelContainer
+var _voice_available := false
 var _actions: Array = []
 var _action_focus := 0
 
@@ -56,8 +58,10 @@ func _ready() -> void:
 		process_mode = Node.PROCESS_MODE_ALWAYS
 	state = GameDefs.campaign
 	_resolve_context()
+	_voice_available = _resolve_voice_available()
 	_build()
 	_start_transmission()
+	_begin_voice_session()
 	resized.connect(_layout)
 	_layout()
 	set_process(true)
@@ -325,6 +329,15 @@ func _build() -> void:
 	footer_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	footer_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(footer_status)
+	replay_button = TouchButton.new()
+	replay_button.text = "REPLAY VOICE"
+	replay_button.tooltip_text = "Replay this Mentat's briefing transmission"
+	replay_button.font_size = GameDefs.fs(13)
+	replay_button.accent = C_AMBER
+	replay_button.custom_minimum_size = Vector2(168.0, 48.0)
+	replay_button.enabled = _voice_available
+	replay_button.pressed.connect(_on_replay_voice)
+	footer.add_child(replay_button)
 	if not embedded:
 		back_button = TouchButton.new()
 		back_button.text = "BACK TO MAP"
@@ -343,6 +356,8 @@ func _build() -> void:
 	proceed_button.pressed.connect(_on_proceed)
 	footer.add_child(proceed_button)
 	_actions = [proceed_button]
+	if replay_button != null:
+		_actions.append(replay_button)
 	if back_button != null:
 		_actions.append(back_button)
 
@@ -369,6 +384,7 @@ func _start_transmission() -> void:
 		_finish_typing()
 
 func _process(delta: float) -> void:
+	_sync_voice_monitor()
 	if not typing:
 		return
 	_type_progress += delta * 38.0
@@ -382,8 +398,52 @@ func _process(delta: float) -> void:
 	if _char_count >= mentat_text.length():
 		_finish_typing()
 
+func _audio() -> Node:
+	return get_node_or_null("/root/AudioManager")
+
+func _voice_path() -> String:
+	return "res://assets/sfx/mentat/%s_mission_%02d.ogg" % [house, tier]
+
+func _resolve_voice_available() -> bool:
+	var audio := _audio()
+	if audio != null and audio.has_method("has_mentat"):
+		return bool(audio.call("has_mentat", house, tier))
+	return ResourceLoader.exists(_voice_path())
+
+func _begin_voice_session() -> void:
+	var audio := _audio()
+	if audio != null and audio.has_method("play_menu_music"):
+		audio.call("play_menu_music")
+	if _voice_available and audio != null and audio.has_method("play_mentat"):
+		audio.call("play_mentat", house, tier)
+	_sync_voice_monitor()
+
+func _sync_voice_monitor() -> void:
+	var audio := _audio()
+	var active := false
+	if audio != null and audio.has_method("is_mentat_playing"):
+		active = bool(audio.call("is_mentat_playing"))
+	if portrait != null and portrait.speaking != active:
+		portrait.speaking = active
+
+func _stop_voice() -> void:
+	var audio := _audio()
+	if audio != null and audio.has_method("stop_mentat"):
+		audio.call("stop_mentat")
+	if portrait != null:
+		portrait.speaking = false
+
+func _on_replay_voice() -> void:
+	if _closing or not _voice_available:
+		return
+	var audio := _audio()
+	if audio != null and audio.has_method("play_mentat"):
+		if bool(audio.call("play_mentat", house, tier)):
+			_sync_voice_monitor()
+			_play_blip()
+
 func _play_blip() -> void:
-	var audio := get_node_or_null("/root/AudioManager")
+	var audio := _audio()
 	if audio != null:
 		audio.call("play_ui", "comms_blip", -20.0, 1.0)
 
@@ -417,7 +477,8 @@ func _on_proceed() -> void:
 	if _closing:
 		return
 	_closing = true
-	var audio := get_node_or_null("/root/AudioManager")
+	_stop_voice()
+	var audio := _audio()
 	if audio != null and audio.has_method("stop_all"):
 		audio.call("stop_all")
 	if embedded:
@@ -429,7 +490,8 @@ func _on_back() -> void:
 	if _closing:
 		return
 	_closing = true
-	var audio := get_node_or_null("/root/AudioManager")
+	_stop_voice()
+	var audio := _audio()
 	if audio != null and audio.has_method("stop_all"):
 		audio.call("stop_all")
 	if embedded:
@@ -438,6 +500,9 @@ func _on_back() -> void:
 	if state != null:
 		state.call("return_to_map")
 	get_tree().change_scene_to_file("res://scenes/campaign_map.tscn")
+
+func _exit_tree() -> void:
+	_stop_voice()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey):
@@ -610,6 +675,7 @@ class MentatPortrait:
 
 	var house := "atreides"
 	var typing := false
+	var speaking := false
 	var _clock := 0.0
 	var _texture: Texture2D
 	var _image_rect := Rect2()
@@ -646,7 +712,8 @@ class MentatPortrait:
 		_draw_crt(w, h, house_col)
 
 	func _draw_face_effect(house_col: Color) -> void:
-		var pulse := 0.55 + 0.45 * absf(sin(_clock * (7.0 if typing else 2.2)))
+		var active := typing or speaking
+		var pulse := 0.55 + 0.45 * absf(sin(_clock * (7.0 if active else 2.2)))
 		var iw := _image_rect.size.x
 		var ih := _image_rect.size.y
 		var cx := _image_rect.position.x + iw * 0.5
@@ -665,14 +732,14 @@ class MentatPortrait:
 				Vector2(cx - iw * 0.18 + scan_x, vy + ih * 0.011),
 				Color(0.66, 1.0, 0.76, 0.40), 1.5)
 			var jaw := _image_rect.position.y + ih * 0.590
-			var open := (0.5 + 0.5 * absf(sin(_clock * 16.0))) if typing else 0.0
+			var open := (0.5 + 0.5 * absf(sin(_clock * 16.0))) if active else 0.0
 			var jaw_h := ih * 0.003 + ih * 0.009 * open
 			draw_rect(Rect2(cx - iw * 0.07, jaw - jaw_h * 0.5, iw * 0.14, jaw_h),
 				Color(0.18, 0.98, 0.48, 0.20 + 0.25 * open))
 		else:
 			var mouth_norm := 0.515 if house == "atreides" else 0.552
 			var my := _image_rect.position.y + ih * mouth_norm
-			var open := (0.5 + 0.5 * absf(sin(_clock * 15.0))) if typing else 0.0
+			var open := (0.5 + 0.5 * absf(sin(_clock * 15.0))) if active else 0.0
 			var mw := iw * 0.080
 			var mh := ih * 0.0035 + ih * 0.017 * open
 			# An oval reads as a moving mouth instead of a blocky missing patch.
@@ -722,11 +789,12 @@ class MentatPortrait:
 				Color(0.44, 0.92, 0.58, 0.65))
 		draw_string(font, Vector2(w - 82.0, 20.0), "CH 07", HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
 			Color(0.58, 0.98, 0.70, 0.86))
-		draw_string(font, Vector2(12.0, h - 9.0), "MENTAT SECURE FEED", HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
+		var feed_text := "MENTAT VOICE FEED" if speaking else "MENTAT SECURE FEED"
+		draw_string(font, Vector2(12.0, h - 9.0), feed_text, HORIZONTAL_ALIGNMENT_LEFT, -1, GameDefs.fs(11),
 			Color(0.72, 0.62, 0.44, 0.92))
 		# Four-bar voice monitor beside the feed label.
 		for i in 4:
-			var amp := (0.28 + 0.72 * absf(sin(_clock * 9.0 + float(i) * 1.7))) if typing else 0.14
+			var amp := (0.28 + 0.72 * absf(sin(_clock * 9.0 + float(i) * 1.7))) if typing or speaking else 0.14
 			var bh := 2.0 + amp * 8.0
 			draw_rect(Rect2(w - 48.0 + float(i) * 7.0, h - 10.0 - bh, 3.0, bh),
 				Color(0.35, 0.95, 0.56, 0.46 + 0.30 * amp))

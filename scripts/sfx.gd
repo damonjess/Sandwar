@@ -21,6 +21,9 @@ const MIN_GAP := {
 	"coin": 0.4,
 	"tap": 0.05,
 	"alarm": 2.0,
+	"frigate_rumble": 0.9,
+	"ornithopter": 0.5,
+	"missile_launch": 0.5,
 }
 
 var streams: Dictionary = {}
@@ -113,6 +116,9 @@ func _build_streams() -> void:
 	streams["coin"] = _wav(_gen_coin())
 	streams["tap"] = _wav(_gen_tap())
 	streams["alarm"] = _wav(_gen_alarm())
+	streams["frigate_rumble"] = _wav(_gen_frigate_rumble())
+	streams["ornithopter"] = _wav(_gen_ornithopter())
+	streams["missile_launch"] = _wav(_gen_missile_launch())
 	streams["wind"] = _wav(_gen_wind(), true)
 
 func _buf(seconds: float) -> PackedFloat32Array:
@@ -279,6 +285,53 @@ func _gen_alarm() -> PackedFloat32Array:
 		var v := sin(p1) + 0.3 * sin(p1 * 2.0) + 0.15 * sin(p1 * 3.0) + 0.5 * sin(p2)
 		b[i] = v * env * 0.5
 	return _scale(b, 0.85)
+
+## CHOAM frigate engine: low turbine rumble with a slow mechanical beat. It is
+## played during descent, touchdown and climb-out so the dropship has weight.
+func _gen_frigate_rumble() -> PackedFloat32Array:
+	var b := _buf(2.4)
+	var lp := 0.0
+	var lp2 := 0.0
+	var phase := 0.0
+	for i in b.size():
+		var t := float(i) / float(RATE)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp += 0.025 * (n - lp)
+		lp2 += 0.008 * (lp - lp2)
+		var beat := 0.68 + 0.32 * sin(TAU * 13.0 * t + sin(TAU * 2.2 * t) * 0.8)
+		phase += TAU * (38.0 + 9.0 * sin(TAU * 0.7 * t)) / float(RATE)
+		var env := smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(2.1, 2.4, t))
+		b[i] = (lp2 * 4.0 + lp * 0.65 * beat + sin(phase) * 0.16) * env
+	return _scale(b, 0.92)
+
+## Ornithopter turbine whine with a fast blade flutter.
+func _gen_ornithopter() -> PackedFloat32Array:
+	var b := _buf(0.75)
+	var phase := 0.0
+	var phase2 := 0.0
+	for i in b.size():
+		var t := float(i) / float(RATE)
+		phase += TAU * (420.0 + 130.0 * t) / float(RATE)
+		phase2 += TAU * (760.0 + 90.0 * t) / float(RATE)
+		var flutter := 0.55 + 0.45 * sin(TAU * 23.0 * t)
+		var env := smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.58, 0.75, t))
+		b[i] = (sin(phase) * 0.42 + sin(phase2) * 0.16 + rng.randf_range(-1.0, 1.0) * 0.10) * flutter * env
+	return _scale(b, 0.74)
+
+## Death Hand ignition: a deep pressure thump followed by a rising rocket roar.
+func _gen_missile_launch() -> PackedFloat32Array:
+	var b := _buf(1.5)
+	var lp := 0.0
+	var phase := 0.0
+	for i in b.size():
+		var t := float(i) / float(RATE)
+		var n := rng.randf_range(-1.0, 1.0)
+		lp += 0.06 * (n - lp)
+		phase += TAU * (55.0 + 180.0 * t) / float(RATE)
+		var env := smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(1.15, 1.5, t))
+		var thump := exp(-t * 9.0) * sin(TAU * 46.0 * t) * 1.1
+		b[i] = (lp * 1.7 + sin(phase) * 0.55 + thump) * env
+	return _scale(b, 0.95)
 
 ## Desert wind bed. Built longer than the loop, then folded so the seam is silent.
 func _gen_wind() -> PackedFloat32Array:

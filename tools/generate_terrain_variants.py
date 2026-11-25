@@ -29,15 +29,25 @@ OUT_DIR = ROOT / "assets/sprites/d2"
 BUILD_DIR = ROOT / "build"
 TILE = 40
 
-ROCK_PAL = [(201, 129, 82), (186, 109, 62), (153, 85, 49), (108, 60, 37)]
-SAND_PAL = [(230, 204, 163), (216, 184, 136), (190, 154, 105), (158, 122, 79)]
+ROCK_PAL = [(223, 160, 108), (203, 137, 88), (163, 98, 60), (112, 61, 38)]
+SAND_PAL = [(246, 211, 166), (229, 190, 142), (201, 156, 105), (166, 121, 76)]
 CLEAN_ROCK = OUT_DIR / "terrain_rock_clean.png"
 CLEAN_SAND = OUT_DIR / "terrain_sand_clean.png"
 SPICE_BLOOMS = OUT_DIR / "terrain_spice_blooms.png"
 SPICE_BLOOM = 96
-SPICE_DUST = [(224, 156, 96), (209, 129, 67), (232, 172, 111), (195, 109, 55)]
-SPICE_MID = [(181, 79, 26), (203, 104, 35), (159, 62, 18), (218, 127, 52)]
-SPICE_DEEP = [(102, 35, 11), (128, 43, 13), (84, 27, 9), (145, 53, 17)]
+SPICE_DUST = [(235, 158, 84), (216, 126, 58), (247, 182, 111), (198, 104, 43)]
+SPICE_MID = [(188, 76, 22), (211, 101, 31), (165, 57, 15), (228, 126, 45)]
+SPICE_DEEP = [(103, 33, 9), (134, 44, 12), (82, 25, 7), (152, 51, 15)]
+
+# A warm, stratified cliff atlas: pale sunlit NW lips, crisp near-black
+# undercuts and a dark south face keep rock readable against open sand.
+CLIFF_FACE = (104, 59, 38)
+CLIFF_FACE_MID = (138, 80, 48)
+CLIFF_FACE_LIT = (178, 106, 64)
+CLIFF_DEEP = (57, 30, 18)
+CLIFF_LIP = (219, 145, 88)
+CLIFF_SUN = (248, 188, 126)
+CLIFF_SHADOW = (39, 21, 13)
 
 
 def periodic(rng, terms):
@@ -207,7 +217,13 @@ def _add_hairlines(img: Image.Image, seed: int, count: int) -> Image.Image:
 def _wrap_dust_and_pebbles(base: Image.Image, seed: int, dust_count: int,
                            pebble_count: int, dust_col: tuple[int, int, int],
                            dust_alpha: int) -> Image.Image:
-    """Seamful dust and pebbles, drawn with wrapped duplicates at the edges."""
+    """Seamful dust and sparse dark pebbles with soft contact shadows.
+
+    Every feature is stamped at all nine wrapped offsets, so a pebble can sit
+    on the sheet border without producing a seam when the 640 px plate tiles.
+    Shadows are collected on their own layer first, keeping every stone visually
+    above its neighbour's drop shadow.
+    """
     W = base.width
     rng = np.random.default_rng(seed)
     dust = Image.new("RGBA", (W, W), (0, 0, 0, 0))
@@ -220,18 +236,31 @@ def _wrap_dust_and_pebbles(base: Image.Image, seed: int, dust_count: int,
                 dd.ellipse([x + ox - rx, y + oy - ry, x + ox + rx, y + oy + ry],
                            fill=(*dust_col, dust_alpha))
     base = Image.alpha_composite(base.convert("RGBA"), dust).convert("RGB")
-    d = ImageDraw.Draw(base)
+    shadow = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    stones = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    d = ImageDraw.Draw(stones)
     for _ in range(pebble_count):
         x, y = rng.uniform(0, W), rng.uniform(0, W)
-        rr = rng.uniform(1.3, 3.0)
+        rr = rng.uniform(1.15, 3.15)
+        ry = rr * rng.uniform(0.55, 0.76)
         for ox in (-W, 0, W):
             for oy in (-W, 0, W):
                 X, Y = x + ox, y + oy
-                d.ellipse([X - rr, Y - rr * 0.7, X + rr, Y + rr * 0.7],
-                          fill=(108, 69, 43))
-                d.arc([X - rr, Y - rr * 0.7, X + rr, Y + rr * 0.7],
-                      190, 330, fill=(205, 158, 104))
-    return base
+                # A tight SE contact shadow anchors the pebble to the sand.
+                sd.ellipse([X - rr * 0.95 + 1.15, Y - ry * 0.82 + 1.05,
+                            X + rr * 1.05 + 1.15, Y + ry * 0.92 + 1.05],
+                           fill=(58, 35, 20, 104))
+                d.ellipse([X - rr, Y - ry, X + rr, Y + ry],
+                          fill=(88, 55, 33, 255))
+                d.arc([X - rr, Y - ry, X + rr, Y + ry], 188, 330,
+                      fill=(170, 118, 73, 255))
+                d.arc([X - rr, Y - ry, X + rr, Y + ry], 12, 158,
+                      fill=(58, 35, 22, 255))
+                d.point((X - rr * 0.28, Y - ry * 0.42), fill=(208, 162, 107, 255))
+    base = Image.alpha_composite(base.convert("RGBA"), shadow)
+    base = Image.alpha_composite(base, stones)
+    return base.convert("RGB")
 
 
 def _tile_noise(seed: int, cells: int, octaves: int = 4) -> np.ndarray:
@@ -305,7 +334,7 @@ def _sparkle(img: Image.Image, seed: int, count: int, tint) -> Image.Image:
 
 
 def make_clean_rock() -> Image.Image:
-    """Granular Dune sandstone: fine grain, NW height light, hairline cracks."""
+    """Warm weathered terracotta-sandstone with crisp sediment grain."""
     W = 640
     yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
     height = (0.47 * _tile_noise(311, 3, 4)
@@ -314,11 +343,14 @@ def make_clean_rock() -> Image.Image:
     height += (0.045 * np.sin(2 * np.pi * (xx + 2 * yy) / W + 0.7)
                + 0.028 * np.sin(2 * np.pi * (3 * xx - yy) / W + 2.1))
     h = (height - height.min()) / max(float(height.max() - height.min()), 1.0e-6)
-    light = np.array([212.0, 149.0, 101.0], dtype=np.float32)
-    dark = np.array([172.0, 109.0, 69.0], dtype=np.float32)
+    light = np.array([224.0, 160.0, 108.0], dtype=np.float32)
+    dark = np.array([160.0, 96.0, 58.0], dtype=np.float32)
     img = dark[None, None, :] + (light - dark)[None, None, :] * h[..., None]
     patches = _tile_noise(314, 2, 3) - 0.5
-    img += patches[..., None] * np.array([16.0, 9.0, 2.0])
+    img += patches[..., None] * np.array([18.0, 10.0, 3.0])
+    # Broad sediment strata, warmed by the same ochre light as the dunes.
+    strata = 0.5 + 0.5 * np.sin(2 * np.pi * (5 * xx + 11 * yy) / W + height * 2.1)
+    img += (strata - 0.5)[..., None] * np.array([9.0, 5.0, 1.5])
     # Fine granular rock: two high-frequency layers, not a polygon web.
     grit = _tile_noise(315, 130, 2)
     img += (grit - 0.5)[..., None] * 11.0
@@ -333,51 +365,144 @@ def make_clean_rock() -> Image.Image:
     rng = np.random.default_rng(317)
     img += rng.integers(-3, 4, (W, W, 1)).astype(np.float32)
     rock = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
-    rock = _hairline_cracks(rock, 410, 30)
-    rock = _wrap_dust_and_pebbles(rock, 404, 14, 64, (230, 192, 143), 10)
-    return _sparkle(rock, 318, 260, (11, 8, 5))
+    rock = _hairline_cracks(rock, 410, 36)
+    rock = _wrap_dust_and_pebbles(rock, 404, 12, 60, (242, 205, 154), 10)
+    return _sparkle(rock, 318, 280, (13, 9, 6))
 
 
 def make_clean_sand() -> Image.Image:
-    """Pale dunes with broad wind waves, fine secondary ripples and grain."""
+    """Golden-peach dunes with continuous diagonal wind bands and pebbles.
+
+    Every wave phase uses an integer wave vector, so the light/shadow bands
+    flow straight across sheet borders when adjacent tiles are drawn. A slow
+    noise warp bends the crests by only a few pixels; it never breaks a band
+    into a square patch or a tile-local streak.
+    """
     W = 640
     yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
-    broad = (0.58 * _tile_noise(511, 3, 3) + 0.42 * _tile_noise(512, 9, 2))
-    medium = 0.64 * _tile_noise(517, 5, 3) + 0.36 * _tile_noise(518, 13, 2)
-    # Two periodic ripple trains make the wind lines finer than the old single
-    # broad wave. Both phases wrap at the sheet dimensions, so the 640 px base
-    # still tiles without a visible seam.
-    phase = (2 * np.pi * (yy * 7.0 + xx * 2.0 + 6.0 * np.sin(2 * np.pi * xx / W)) / W
-             + broad * 4.2)
-    fine_phase = (2 * np.pi * (yy * 23.0 + xx * 6.0
-                              + 2.4 * np.sin(2 * np.pi * xx * 2.0 / W + 0.9)
-                              + 1.3 * np.sin(2 * np.pi * yy * 3.0 / W + 2.2)) / W
-                  + broad * 3.4 + medium * 1.6)
-    micro_phase = (2 * np.pi * (yy * 31.0 + xx * 11.0
-                               + 1.6 * np.sin(2 * np.pi * xx * 5.0 / W)) / W
-                   + broad * 1.7)
-    ripple = 0.5 + 0.5 * np.sin(phase)
+    broad = (0.60 * _tile_noise(511, 2, 3) + 0.40 * _tile_noise(512, 7, 2))
+    medium = 0.64 * _tile_noise(517, 4, 3) + 0.36 * _tile_noise(518, 11, 2)
+    # Main wind bands run NW -> SE. The secondary and micro trains share that
+    # direction, so they read as fine ribbing inside continuous dune waves.
+    phase = (2 * np.pi * (yy * 5.0 + xx * 7.0) / W + broad * 2.6)
+    fine_phase = (2 * np.pi * (yy * 13.0 + xx * 19.0) / W
+                  + broad * 3.4 + medium * 1.2)
+    micro_phase = (2 * np.pi * (yy * 23.0 + xx * 33.0) / W
+                   + broad * 1.9 + medium * 0.8)
+    band = 0.5 + 0.5 * np.sin(phase)
     fine = 0.5 + 0.5 * np.sin(fine_phase)
     micro = 0.5 + 0.5 * np.sin(micro_phase)
-    h = 0.50 * ripple + 0.25 * broad + 0.16 * fine + 0.09 * medium
-    light = np.array([241.0, 220.0, 186.0], dtype=np.float32)
-    dark = np.array([201.0, 166.0, 119.0], dtype=np.float32)
+    crest = smoothstep(0.42, 0.96, band)
+    trough = smoothstep(0.42, 0.96, 1.0 - band)
+    h = 0.47 + 0.19 * (band - 0.5) + 0.055 * (fine - 0.5) + 0.022 * (micro - 0.5) + 0.05 * (broad - 0.5)
+    light = np.array([247.0, 212.0, 168.0], dtype=np.float32)
+    dark = np.array([193.0, 146.0, 96.0], dtype=np.float32)
     img = dark[None, None, :] + (light - dark)[None, None, :] * h[..., None]
-    # Broad thermal variation keeps the desert from reading as one flat beige.
-    img += (medium - 0.5)[..., None] * np.array([8.0, 5.0, 1.5])
-    img += (fine - 0.5)[..., None] * np.array([4.5, 3.5, 2.2])
-    img += (micro - 0.5)[..., None] * np.array([2.0, 1.6, 1.0])
-    shade = _nw_light(fine * 0.30 + ripple * 0.38 + broad * 0.24 + medium * 0.08, 52.0)
-    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([12.0, 9.5, 6.0])
-    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([9.0, 7.5, 5.2])
-    img += (_tile_noise(513, 120, 2) - 0.5)[..., None] * 6.5
-    img += (_tile_noise(516, 300, 1) - 0.5)[..., None] * 2.8
-    img += (_tile_noise(521, 210, 2) - 0.5)[..., None] * 3.2
+    # Sunlit crest and warm slip-face shadow create the illustrated wave read.
+    img += crest[..., None] * np.array([25.0, 18.0, 8.0])
+    img -= trough[..., None] * np.array([19.0, 16.0, 12.0])
+    img += (medium - 0.5)[..., None] * np.array([7.0, 4.0, 0.5])
+    img += (fine - 0.5)[..., None] * np.array([4.0, 3.0, 1.8])
+    img += (micro - 0.5)[..., None] * np.array([2.0, 1.5, 0.9])
+    shade = _nw_light(band * 0.68 + fine * 0.18 + broad * 0.14, 64.0)
+    img += np.clip(shade, 0.0, 1.0)[..., None] * np.array([14.0, 10.0, 5.0])
+    img -= np.clip(-shade, 0.0, 1.0)[..., None] * np.array([10.0, 8.0, 5.0])
+    img += (_tile_noise(513, 120, 2) - 0.5)[..., None] * 5.0
+    img += (_tile_noise(516, 300, 1) - 0.5)[..., None] * 2.4
+    img += (_tile_noise(521, 210, 2) - 0.5)[..., None] * 2.8
     rng = np.random.default_rng(514)
     img += rng.integers(-3, 4, (W, W, 1)).astype(np.float32)
     sand = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
-    sand = _wrap_dust_and_pebbles(sand, 505, 12, 26, (246, 227, 194), 9)
-    return _sparkle(sand, 515, 240, (12, 10, 8))
+    sand = _wrap_dust_and_pebbles(sand, 505, 10, 34, (251, 229, 195), 8)
+    return _sparkle(sand, 515, 240, (13, 10, 7))
+
+
+def make_cliff_atlas() -> Image.Image:
+    """16-frame warm sandstone cliff overlay with crisp dark rims."""
+    frames = []
+    for mask in range(16):
+        rng = np.random.default_rng(500 + mask * 97)
+        img = Image.new("RGBA", (TILE, TILE), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        # North lip: sunlit sandstone edge over a hard, dark undercut.
+        if not (mask & 1):
+            for x in range(TILE):
+                yy = 3 + int(round(1.2 * math.sin(x * 0.47) + 0.5 * math.sin(x * 1.1)))
+                d.point((x, max(0, yy - 1)), fill=CLIFF_SUN)
+                d.point((x, yy), fill=CLIFF_LIP)
+                d.point((x, min(TILE - 1, yy + 1)), fill=CLIFF_DEEP)
+                d.point((x, min(TILE - 1, yy + 2)), fill=CLIFF_SHADOW)
+            for _ in range(3):
+                x = int(rng.integers(2, TILE - 3))
+                d.line([(x, 2), (x + int(rng.integers(-2, 3)), int(rng.integers(4, 8)))],
+                       fill=CLIFF_SHADOW)
+        # West rim: bright windward shoulder stepping into the plateau.
+        if not (mask & 8):
+            for y in range(TILE):
+                xx = 3 + int(round(1.8 * math.sin(y * 0.31 + 1.7) + 0.8 * math.sin(y * 0.93)))
+                d.point((max(0, xx - 1), y), fill=CLIFF_SUN)
+                d.point((xx, y), fill=CLIFF_LIP)
+                d.line([(xx + 1, y), (min(TILE - 1, xx + 3), y)], fill=CLIFF_FACE_LIT)
+                d.point((min(TILE - 1, xx + 4), y), fill=CLIFF_DEEP)
+        # East wall: a crisp near-black rim against the open sand.
+        if not (mask & 2):
+            for y in range(TILE):
+                xx = TILE - 3 - int(round(1.8 * math.sin(y * 0.37 + 0.4) + 0.7 * math.sin(y * 0.89)))
+                d.point((min(TILE - 1, xx + 2), y), fill=CLIFF_FACE_LIT)
+                d.point((min(TILE - 1, xx + 1), y), fill=CLIFF_FACE_MID)
+                d.line([(max(0, xx - 2), y), (xx, y)], fill=CLIFF_DEEP)
+                d.point((max(0, xx - 3), y), fill=CLIFF_SHADOW)
+            for _ in range(4):
+                y = int(rng.integers(1, TILE - 2))
+                d.line([(TILE - 3, y), (TILE - int(rng.integers(6, 12)), y + int(rng.integers(-3, 4)))],
+                       fill=CLIFF_SHADOW)
+        # South face: jagged stratified wall with a dark overhanging sill.
+        if not (mask & 4):
+            tops = []
+            for x in range(TILE):
+                yy = 20 + 2.8 * math.sin(x * 0.38 + 0.6) + 1.5 * math.sin(x * 0.91 + 2.1)
+                yy += float(rng.integers(-1, 2))
+                tops.append(max(17, min(27, int(round(yy)))))
+            d.polygon([(0, tops[0])] + [(x, tops[x]) for x in range(1, TILE)] + [(TILE - 1, TILE), (0, TILE)],
+                      fill=CLIFF_FACE)
+            for x in range(TILE):
+                top = tops[x]
+                d.point((x, max(0, top - 2)), fill=CLIFF_SUN)
+                d.point((x, max(0, top - 1)), fill=CLIFF_LIP)
+                d.point((x, top), fill=CLIFF_SHADOW)
+                d.line([(x, min(TILE - 1, top + 1)), (x, TILE - 1)],
+                       fill=CLIFF_FACE_MID if (x // 3) % 2 else CLIFF_FACE)
+                if x % 4 == (mask % 4):
+                    d.point((x, min(TILE - 1, top + 3)), fill=CLIFF_DEEP)
+            for band_y in range(29, TILE, 4):
+                for x in range(TILE):
+                    if tops[x] + 2 < band_y:
+                        d.point((x, band_y + (x % 3 == 0)),
+                                fill=CLIFF_DEEP if band_y % 8 else CLIFF_FACE_LIT)
+            for _ in range(6):
+                x0 = int(rng.integers(2, TILE - 3))
+                y0 = tops[x0] + 1
+                pts = [(x0, y0)]
+                y, x = y0, x0
+                for _ in range(int(rng.integers(2, 5))):
+                    x = max(1, min(TILE - 2, x + int(rng.integers(-3, 4))))
+                    y = min(TILE - 1, y + int(rng.integers(2, 6)))
+                    pts.append((x, y))
+                d.line(pts, fill=CLIFF_SHADOW)
+                d.line([(min(TILE - 1, p[0] + 1), p[1]) for p in pts], fill=CLIFF_FACE_LIT)
+            for _ in range(5):
+                x = int(rng.integers(1, TILE - 6))
+                w = int(rng.integers(2, 6))
+                y = int(rng.integers(31, 37))
+                d.rectangle([x, y, x + w, min(TILE - 1, y + 2)], fill=CLIFF_FACE_MID)
+                d.line([(x, y), (x + w, y)], fill=CLIFF_LIP)
+                d.point((x + 1, y + 1), fill=CLIFF_DEEP)
+            d.rectangle([0, TILE - 2, TILE - 1, TILE - 1], fill=CLIFF_SHADOW)
+        frames.append(img)
+    strip = Image.new("RGBA", (TILE * 16, TILE), (0, 0, 0, 0))
+    for mask, frame in enumerate(frames):
+        strip.alpha_composite(frame, (mask * TILE, 0))
+    return strip
 
 
 def spice_bloom(seed: int, dense: bool) -> np.ndarray:
@@ -423,19 +548,40 @@ def spice_bloom(seed: int, dense: bool) -> np.ndarray:
         r = math.sqrt(rng.uniform(0.0, 0.72)) * W * 0.5
         clusters.append((W * 0.5 + math.cos(a) * r, W * 0.5 + math.sin(a) * r * 0.92))
 
-    # A few larger translucent clumps give each bloom a granular mass at RTS
-    # zoom; the individual specks then catch the light on top of those clumps.
-    for _ in range(26 if dense else 9):
+    # Burnt-orange gravel clusters: each clump gets a dark undershadow, a
+    # saturated mid-body and a tiny sunlit NW facet. These are deliberately
+    # clustered around the same irregular islands as the fine grit so the
+    # bloom reads as granular rock rather than an airbrushed orange cloud.
+    for _ in range(46 if dense else 22):
+        cx, cy = clusters[int(rng.integers(0, len(clusters)))]
+        x = rng.normal(cx, rng.uniform(1.5, 6.0))
+        y = rng.normal(cy, rng.uniform(1.0, 4.2))
+        rr = rng.uniform(1.1, 3.2) * (1.15 if dense else 0.85)
+        ry = rr * rng.uniform(0.55, 0.82)
+        ix, iy = int(x), int(y)
+        if ix < 2 or iy < 2 or ix >= W - 2 or iy >= W - 2:
+            continue
+        if rng.random() > float(density[iy, ix]) * 0.88:
+            continue
+        draw.ellipse([x - rr + 0.8, y - ry + 0.9, x + rr + 0.8, y + ry + 0.9],
+                     fill=(73, 28, 8, 76))
+        col = SPICE_DEEP[int(rng.integers(0, len(SPICE_DEEP)))] if dense else SPICE_MID[0]
+        draw.ellipse([x - rr, y - ry, x + rr, y + ry],
+                     fill=(*col, int(rng.integers(150, 224))))
+        draw.point((ix - 1, iy - 1), fill=(*SPICE_DUST[2], int(rng.integers(120, 205))))
+
+    # A few larger translucent clumps fuse the gravel islands at RTS zoom.
+    for _ in range(18 if dense else 7):
         a = rng.uniform(0.0, math.tau)
         r = math.sqrt(rng.uniform(0.0, 0.58 if dense else 0.68)) * W * 0.5
         x = W * 0.5 + math.cos(a) * r
         y = W * 0.5 + math.sin(a) * r * 0.92
-        rr = rng.uniform(2.0, 5.5)
+        rr = rng.uniform(2.4, 6.0)
         col = SPICE_MID[int(rng.integers(0, len(SPICE_MID)))] if dense else SPICE_DUST[2]
         draw.ellipse([x - rr, y - rr * 0.70, x + rr, y + rr * 0.70],
-                     fill=(*col, int(rng.integers(62, 104)) if dense else int(rng.integers(42, 72))))
+                     fill=(*col, int(rng.integers(54, 92)) if dense else int(rng.integers(36, 62))))
 
-    grain_count = 900 if dense else 600
+    grain_count = 1250 if dense else 780
     for _ in range(grain_count):
         if rng.random() < 0.72:
             cx, cy = clusters[int(rng.integers(0, len(clusters)))]
@@ -461,11 +607,13 @@ def spice_bloom(seed: int, dense: bool) -> np.ndarray:
                 col = SPICE_DUST[int(rng.integers(0, len(SPICE_DUST)))]
         else:
             col = SPICE_DUST[int(rng.integers(0, len(SPICE_DUST)))] if rng.random() < 0.76 else SPICE_MID[0]
-        rr = rng.uniform(0.55, 1.45)
-        alpha = int(rng.integers(118, 238))
+        rr = rng.uniform(0.5, 1.55)
+        alpha = int(rng.integers(132, 246))
         draw.ellipse([x - rr, y - rr * 0.72, x + rr, y + rr * 0.72], fill=(*col, alpha))
-        if alpha > 165 and rng.random() < 0.34:
-            draw.point((ix - 1, iy - 1), fill=(*SPICE_DUST[0], min(255, alpha + 22)))
+        if alpha > 165 and rng.random() < 0.28:
+            draw.point((ix + 1, iy + 1), fill=(66, 24, 7, min(255, alpha + 8)))
+        if alpha > 165 and rng.random() < 0.38:
+            draw.point((ix - 1, iy - 1), fill=(*SPICE_DUST[0], min(255, alpha + 16)))
 
     out = np.asarray(img, dtype=np.uint8).copy()
     # Guaranteed transparent margin: runtime draws these stamps larger than a
@@ -570,18 +718,21 @@ def main() -> None:
     verify_edges(sand)
     clean_rock = make_clean_rock()
     clean_sand = make_clean_sand()
+    cliffs = make_cliff_atlas()
     blooms = make_spice_blooms()
     verify_clean_wrap("rock", clean_rock)
     verify_clean_wrap("sand", clean_sand)
     verify_spice_blooms(blooms)
     clean_rock.save(CLEAN_ROCK)
     clean_sand.save(CLEAN_SAND)
+    cliffs.save(OUT_DIR / "terrain_cliff.png")
     write_strip(rock, OUT_DIR / "terrain_rock_variants.png")
     write_strip(sand, OUT_DIR / "terrain_sand_variants.png")
     write_bloom_strip(blooms, SPICE_BLOOMS)
     preview(rock, sand)
     print("wrote", CLEAN_ROCK, "seamless clean base")
     print("wrote", CLEAN_SAND, "seamless clean base")
+    print("wrote", OUT_DIR / "terrain_cliff.png", "16 warm cliff masks")
     print("wrote", OUT_DIR / "terrain_rock_variants.png", len(rock), "variants")
     print("wrote", OUT_DIR / "terrain_sand_variants.png", len(sand), "variants")
     print("wrote", SPICE_BLOOMS, len(blooms), "organic bloom cells")

@@ -7,7 +7,10 @@ var pan_speed := 760.0
 var min_zoom := 1.0
 var max_zoom := 3.0
 var panning := false
+var orbiting := false
 var user_zoomed := false
+
+const ORBIT_DRAG_SENSITIVITY := 0.0075
 ## Set while the game is drawing a selection box, so the view stops moving.
 var pan_locked := false
 
@@ -21,6 +24,10 @@ var _pinch_active := false
 var _pinch_distance := 1.0
 var _pinch_zoom := 1.0
 var _pinch_anchor := Vector2.ZERO
+## Incremental 3D pinch bookkeeping. The 3D camera owns its own zoom, while the
+## 2D Camera2D is left untouched and ready for an instant switch back.
+var _pinch3d_last_distance := 1.0
+var _pinch3d_last_midpoint := Vector2.ZERO
 ## True from the moment a second finger lands until every finger is lifted.
 ## Game uses this to reject unit orders, placement taps and box selection.
 var _gesture_suppressed := false
@@ -92,8 +99,21 @@ func _on_viewport_resized() -> void:
 	if not user_zoomed:
 		apply_default_zoom()
 
+func _renderer_3d() -> Renderer3D:
+	var parent := get_parent()
+	if parent == null:
+		return null
+	var renderer = parent.get("renderer_3d")
+	if renderer is Renderer3D and (renderer as Renderer3D).active:
+		return renderer as Renderer3D
+	return null
+
 func zoom_by(factor: float) -> void:
 	user_zoomed = true
+	var modern := _renderer_3d()
+	if modern != null:
+		modern.zoom_by(factor)
+		return
 	var z := clampf(zoom.x * factor, min_zoom, max_zoom)
 	zoom = Vector2(z, z)
 	_sync_panel_offset()
@@ -166,6 +186,8 @@ func _begin_pinch() -> void:
 	_pinch_zoom = zoom.x
 	var midpoint := (Vector2(points[0]) + Vector2(points[1])) * 0.5
 	_pinch_anchor = _screen_to_world(midpoint)
+	_pinch3d_last_distance = _pinch_distance
+	_pinch3d_last_midpoint = midpoint
 
 func _update_pinch() -> void:
 	var points := _map_touch_points()
@@ -175,6 +197,14 @@ func _update_pinch() -> void:
 	var b := Vector2(points[1])
 	var midpoint := (a + b) * 0.5
 	var distance := maxf(a.distance_to(b), 1.0)
+	var modern := _renderer_3d()
+	if modern != null:
+		modern.pan_screen_drag(_pinch3d_last_midpoint, midpoint)
+		modern.zoom_at(distance / maxf(_pinch3d_last_distance, 1.0), midpoint)
+		_pinch3d_last_distance = distance
+		_pinch3d_last_midpoint = midpoint
+		get_viewport().set_input_as_handled()
+		return
 	var z := clampf(_pinch_zoom * distance / _pinch_distance, min_zoom, max_zoom)
 	user_zoomed = true
 	zoom = Vector2(z, z)
@@ -187,6 +217,11 @@ func _update_pinch() -> void:
 	get_viewport().set_input_as_handled()
 
 func _apply_zoom_at(factor: float, screen_position: Vector2) -> void:
+	var modern := _renderer_3d()
+	if modern != null:
+		modern.zoom_at(factor, screen_position)
+		user_zoomed = true
+		return
 	var anchor := _screen_to_world(screen_position)
 	var z := clampf(zoom.x * factor, min_zoom, max_zoom)
 	user_zoomed = true
@@ -199,17 +234,37 @@ func _apply_zoom_at(factor: float, screen_position: Vector2) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_MIDDLE:
-			panning = event.pressed
+			if not event.pressed:
+				panning = false
+				orbiting = false
+			elif _renderer_3d() != null and event.shift_pressed:
+				orbiting = true
+				panning = false
+			else:
+				panning = true
+				orbiting = false
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			zoom_by(1.1)
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			zoom_by(0.9)
+	elif event is InputEventMouseMotion and orbiting:
+		var modern_orbit := _renderer_3d()
+		if modern_orbit != null:
+			modern_orbit.orbit_by(-event.relative.x * ORBIT_DRAG_SENSITIVITY)
 	elif event is InputEventMouseMotion and panning:
-		position -= event.relative / zoom.x
-		_clamp_position()
+		var modern := _renderer_3d()
+		if modern != null:
+			modern.pan_screen_drag(event.position - event.relative, event.position)
+		else:
+			position -= event.relative / zoom.x
+			_clamp_position()
 	elif event is InputEventScreenDrag and not pan_locked and not _gesture_suppressed:
-		position -= event.relative / zoom.x
-		_clamp_position()
+		var modern_touch := _renderer_3d()
+		if modern_touch != null:
+			modern_touch.pan_screen_drag(event.position - event.relative, event.position)
+		else:
+			position -= event.relative / zoom.x
+			_clamp_position()
 
 func _process(delta: float) -> void:
 	var dir := Vector2.ZERO
@@ -222,6 +277,10 @@ func _process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_DOWN):
 		dir.y += 1.0
 	if dir != Vector2.ZERO:
-		position += dir.normalized() * pan_speed * delta / zoom.x
-		_clamp_position()
+		var modern := _renderer_3d()
+		if modern != null:
+			modern.pan_camera_screen(dir.normalized() * pan_speed * delta)
+		else:
+			position += dir.normalized() * pan_speed * delta / zoom.x
+			_clamp_position()
 	_update_shake(delta)

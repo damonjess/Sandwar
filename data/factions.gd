@@ -28,7 +28,7 @@ const HOUSES := {
 		"doctrine": "HOLD · PRECISION · STRIKE",
 		"units": [
 			"infantry", "rocket", "fremen",
-			"trike", "atreides_tank", "sonic_tank", "tank", "harvester",
+			"trike", "atreides_tank", "sonic_tank", "tank", "harvester", "mcv", "carryall",
 		],
 		"signature": ["trike", "atreides_tank", "fremen", "sonic_tank"],
 		"scout": "trike",
@@ -46,10 +46,10 @@ const HOUSES := {
 		"doctrine": "GRIND · ENDURE · CRUSH",
 		"units": [
 			"infantry", "rocket", "sardaukar",
-			"quad", "harkonnen_tank", "devastator", "tank", "harvester",
+			"trike", "quad", "harkonnen_tank", "devastator", "tank", "harvester", "mcv", "carryall",
 		],
 		"signature": ["quad", "harkonnen_tank", "sardaukar", "devastator"],
-		"scout": "quad",
+		"scout": "trike",
 	},
 	ORDOS: {
 		"name": "House Ordos",
@@ -64,7 +64,7 @@ const HOUSES := {
 		"doctrine": "STRIKE · SLIP · SEIZE",
 		"units": [
 			"infantry", "rocket", "saboteur",
-			"raider_trike", "ordos_tank", "deviator", "tank", "harvester",
+			"raider_trike", "ordos_tank", "deviator", "tank", "harvester", "mcv", "carryall",
 		],
 		"signature": ["raider_trike", "ordos_tank", "saboteur", "deviator"],
 		"scout": "raider_trike",

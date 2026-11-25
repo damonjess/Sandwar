@@ -8,8 +8,17 @@ extends Node
 ## the single place that mutates the strategic map.
 
 const SAVE_PATH := "user://campaign_save.json"
+## Shared player preferences. AudioManager writes its volume keys here too, so
+## every save merges into the existing dictionary instead of replacing it.
+const SETTINGS_PATH := "user://settings.json"
 const MAX_TECH := 99
 const SAVE_VERSION := 1
+const GRAPHICS_CLASSIC := "classic"
+const GRAPHICS_MODERN := "modern_3d"
+
+## Selected presentation renderer. Gameplay, production, campaign progress and
+## the 2D art remain authoritative in both modes.
+var graphics_mode := GRAPHICS_CLASSIC
 
 var player_house := Factions.ATREIDES
 var enemy_house := Factions.HARKONNEN
@@ -34,6 +43,7 @@ func _ready() -> void:
 	GameDefs.campaign = self
 	GameDefs.set_map_size(56)
 	_rng.randomize()
+	load_graphics_settings()
 	load_campaign()
 	if not campaign_active:
 		player_house = Factions.ATREIDES
@@ -45,6 +55,45 @@ func _ready() -> void:
 
 func has_campaign_save() -> bool:
 	return FileAccess.file_exists(SAVE_PATH)
+
+func is_modern_3d() -> bool:
+	return graphics_mode == GRAPHICS_MODERN
+
+func graphics_label() -> String:
+	return "MODERN 3D" if is_modern_3d() else "CLASSIC 2D"
+
+## Read only graphics_mode; AudioManager owns the volume keys. Invalid values
+## fall back to Classic so a hand-edited settings file can never break a battle.
+func load_graphics_settings() -> void:
+	if not FileAccess.file_exists(SETTINGS_PATH):
+		return
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SETTINGS_PATH))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	var mode := String((parsed as Dictionary).get("graphics_mode", GRAPHICS_CLASSIC))
+	graphics_mode = mode if mode == GRAPHICS_MODERN else GRAPHICS_CLASSIC
+
+func set_graphics_mode(mode: String, save := true) -> void:
+	graphics_mode = GRAPHICS_MODERN if mode == GRAPHICS_MODERN else GRAPHICS_CLASSIC
+	if save:
+		save_graphics_settings()
+
+func toggle_graphics_mode() -> String:
+	set_graphics_mode(GRAPHICS_CLASSIC if is_modern_3d() else GRAPHICS_MODERN)
+	return graphics_mode
+
+func save_graphics_settings() -> void:
+	var data: Dictionary = {}
+	if FileAccess.file_exists(SETTINGS_PATH):
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string(SETTINGS_PATH))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			data = (parsed as Dictionary).duplicate(true)
+	data["graphics_mode"] = graphics_mode
+	var file := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("CampaignState: could not write %s" % SETTINGS_PATH)
+		return
+	file.store_string(JSON.stringify(data, "\t"))
 
 func load_campaign() -> bool:
 	if not FileAccess.file_exists(SAVE_PATH):

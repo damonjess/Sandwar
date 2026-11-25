@@ -112,13 +112,49 @@ static func tech_available(kind: String, id: String, tech := -1) -> bool:
 static func structure_items(tech := -1) -> Array:
 	var limit := tech_level if tech < 0 else tech
 	var out: Array = []
-	for id in ["windtrap", "refinery", "barracks", "factory", "turret", "rocketturret"]:
+	for id in ["windtrap", "refinery", "silo", "barracks", "factory",
+			"heavy_factory", "outpost", "repair_pad", "turret", "rocketturret",
+			"starport", "hightech", "ix", "palace"]:
 		if int(STRUCTURES[id].get("tech", 1)) <= limit:
 			out.append(["structure", id])
 	for id in ["slab", "wall"]:
 		if int(BRUSHES[id].get("tech", 1)) <= limit:
 			out.append(["brush", id])
 	return out
+
+## The single classic upgrade tier for a production building. Barracks and both
+## factories expose one upgrade; an upgraded building unlocks its advanced
+## roster globally for that team.
+static func upgrade_for(id: String) -> Dictionary:
+	return STRUCTURES.get(id, {}).get("upgrade", {})
+
+## Mission tier at which a production upgrade becomes available. The upgrade
+## button is hidden until this tier, so Mission 2 cannot buy the Light Factory
+## upgrade that belongs to Mission 3.
+static func upgrade_tech(id: String) -> int:
+	return int(upgrade_for(id).get("tech", item_tech("structure", id)))
+
+static func producer_for_unit(id: String) -> String:
+	return String(UNITS.get(id, {}).get("producer", ""))
+
+## Units that only appear once their producer has been upgraded. Returning an
+## empty string means the unit is available as soon as its producer exists.
+static func upgrade_required_for(id: String) -> String:
+	return String(UNITS.get(id, {}).get("requires_upgrade", ""))
+
+## The IX Research Centre is the second half of the super-vehicle gate: the
+## Heavy Factory must be upgraded and IX must stand, exactly as in Dune 2000.
+static func requires_ix(id: String) -> bool:
+	return bool(UNITS.get(id, {}).get("requires_ix", false))
+
+static func carryall_support(id: String) -> bool:
+	return bool(UNITS.get(id, {}).get("support_carryall", false))
+
+## Bullets bounce off concrete walls; only these weapons can breach them.
+const WALL_IMMUNE_WEAPONS := ["small_arms", "heavy_rifle", "sniper", "gas"]
+
+static func wall_immune(weapon: String) -> bool:
+	return WALL_IMMUNE_WEAPONS.has(weapon)
 
 static func player_roster() -> Array:
 	return unit_roster(house_for_team(PLAYER))
@@ -145,6 +181,10 @@ const WEAPONS := {
 	"demolition": {"infantry": 0.35, "vehicle": 0.25, "building": 2.80, "soft": 2.20},
 	"sonic": {"infantry": 1.20, "vehicle": 0.95, "building": 0.55, "soft": 0.90},
 	"gas": {"infantry": 0.20, "vehicle": 0.30, "building": 0.18, "soft": 0.30},
+	# Palace Death Hand: a nuclear-scale area warhead. The raw impact values in
+	# death_hand_impact() are deliberately high; this row makes them lethal to
+	# structures and squads instead of falling back to small-arms multipliers.
+	"death_hand": {"infantry": 3.0, "vehicle": 2.4, "building": 2.2, "soft": 2.4},
 }
 
 const ARMOUR_CLASS := {
@@ -164,6 +204,7 @@ const ARMOUR_CLASS := {
 	"devastator": "vehicle",
 	"deviator": "vehicle",
 	"harvester": "vehicle",
+	"mcv": "vehicle",
 }
 
 ## Footprint in tiles: square buildings just set "size"; non-square
@@ -229,6 +270,7 @@ const STRUCTURES := {
 		"size": 2,
 		"vision": 220.0,
 		"drain": 20,
+		"upgrade": {"cost": 300, "time": 8.0, "name": "Barracks Upgrade", "tech": 2},
 	},
 	"factory": {
 		"name": "Light Factory",
@@ -241,6 +283,55 @@ const STRUCTURES := {
 		"h": 2,
 		"vision": 240.0,
 		"drain": 30,
+		"upgrade": {"cost": 450, "time": 9.0, "name": "Light Factory Upgrade", "tech": 3},
+	},
+	"heavy_factory": {
+		"name": "Heavy Factory",
+		"tech": 3,
+		"cost": 1200,
+		"build": 24.0,
+		"hp": 960.0,
+		"size": 3,
+		"vision": 260.0,
+		"drain": 50,
+		"armour": "building",
+		"upgrade": {"cost": 700, "time": 11.0, "name": "Heavy Factory Upgrade", "tech": 4},
+	},
+	"silo": {
+		"name": "Spice Silo",
+		"tech": 2,
+		"cost": 150,
+		"build": 5.0,
+		"hp": 180.0,
+		"size": 1,
+		"vision": 120.0,
+		"drain": 0,
+		"armour": "soft",
+		"storage": 1500,
+	},
+	"outpost": {
+		"name": "Outpost",
+		"tech": 2,
+		"cost": 400,
+		"build": 12.0,
+		"hp": 460.0,
+		"size": 2,
+		"vision": 360.0,
+		"drain": 40,
+		"armour": "building",
+		"power_dependent": true,
+		"radar": true,
+	},
+	"repair_pad": {
+		"name": "Repair Pad",
+		"tech": 4,
+		"cost": 500,
+		"build": 15.0,
+		"hp": 720.0,
+		"size": 3,
+		"vision": 180.0,
+		"drain": 30,
+		"armour": "building",
 	},
 	"turret": {
 		"name": "Gun Turret",
@@ -275,6 +366,55 @@ const STRUCTURES := {
 		"drain": 20,
 		"power_dependent": true,
 		"weapon": "rocket",
+	},
+	"starport": {
+		"name": "Starport",
+		"tech": 5,
+		"cost": 1500,
+		"build": 26.0,
+		"hp": 1200.0,
+		"size": 3,
+		"vision": 300.0,
+		"drain": 40,
+		"armour": "building",
+	},
+	"hightech": {
+		"name": "High Tech Factory",
+		"tech": 5,
+		"cost": 1400,
+		"build": 24.0,
+		"hp": 900.0,
+		"size": 3,
+		"w": 3,
+		"h": 2,
+		"vision": 280.0,
+		"drain": 60,
+		"armour": "soft",
+		"upgrade": {"cost": 650, "time": 10.0, "name": "Ornithopter Upgrade", "tech": 5, "house": "atreides"},
+	},
+	"ix": {
+		"name": "IX Research Centre",
+		"tech": 6,
+		"cost": 1300,
+		"build": 26.0,
+		"hp": 760.0,
+		"size": 2,
+		"vision": 260.0,
+		"drain": 50,
+		"armour": "soft",
+		"power_dependent": true,
+	},
+	"palace": {
+		"name": "Palace",
+		"tech": 7,
+		"cost": 1800,
+		"build": 32.0,
+		"hp": 1400.0,
+		"size": 3,
+		"vision": 340.0,
+		"drain": 80,
+		"armour": "building",
+		"power_dependent": true,
 	},
 	"wall": {
 		"name": "Wall",
@@ -322,6 +462,7 @@ const UNITS := {
 		"radius": 9.0,
 		"vision": 235.0,
 		"producer": "barracks",
+		"requires_upgrade": "barracks",
 		"weapon": "rocket",
 		"tech": 2,
 	},
@@ -337,10 +478,11 @@ const UNITS := {
 		"radius": 12.0,
 		"vision": 300.0,
 		"producer": "factory",
+		"requires_upgrade": "factory",
 		"weapon": "quad_rocket",
 		"splash": 26.0,
 		"splash_fraction": 0.45,
-		"tech": 2,
+		"tech": 3,
 	},
 	"tank": {
 		"name": "Siege Tank",
@@ -353,7 +495,8 @@ const UNITS := {
 		"cooldown": 2.8,
 		"radius": 18.0,
 		"vision": 300.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
+		"requires_upgrade": "heavy_factory",
 		"weapon": "artillery",
 		"splash": 68.0,
 		"splash_fraction": 0.65,
@@ -385,9 +528,41 @@ const UNITS := {
 		"cooldown": 1.0,
 		"radius": 15.0,
 		"vision": 200.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
 		"weapon": "small_arms",
-		"tech": 2,
+		"tech": 3,
+	},
+	"carryall": {
+		"name": "Carryall",
+		"cost": 500,
+		"build": 12.0,
+		"hp": 180.0,
+		"speed": 220.0,
+		"damage": 0.0,
+		"range": 0.0,
+		"cooldown": 1.0,
+		"radius": 18.0,
+		"vision": 300.0,
+		"producer": "hightech",
+		"weapon": "small_arms",
+		"support_carryall": true,
+		"tech": 5,
+	},
+	"mcv": {
+		"name": "Mobile Construction Vehicle",
+		"cost": 900,
+		"build": 26.0,
+		"hp": 620.0,
+		"speed": 34.0,
+		"damage": 0.0,
+		"range": 0.0,
+		"cooldown": 1.0,
+		"radius": 22.0,
+		"vision": 240.0,
+		"producer": "heavy_factory",
+		"requires_upgrade": "heavy_factory",
+		"weapon": "small_arms",
+		"tech": 4,
 	},
 
 	# ---------------------------------------------------------- house uniques
@@ -403,7 +578,7 @@ const UNITS := {
 		"cooldown": 1.8,
 		"radius": 18.0,
 		"vision": 265.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
 		"weapon": "cannon",
 		"tech": 3,
 	},
@@ -419,6 +594,7 @@ const UNITS := {
 		"radius": 9.0,
 		"vision": 300.0,
 		"producer": "barracks",
+		"requires_upgrade": "barracks",
 		"weapon": "sniper",
 		"stealth": 120.0,
 		"tech": 5,
@@ -434,9 +610,11 @@ const UNITS := {
 		"cooldown": 2.6,
 		"radius": 19.0,
 		"vision": 260.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
+		"requires_upgrade": "heavy_factory",
 		"weapon": "sonic",
 		"special": "sonic",
+		"requires_ix": true,
 		"tech": 6,
 	},
 
@@ -452,7 +630,7 @@ const UNITS := {
 		"cooldown": 2.0,
 		"radius": 19.0,
 		"vision": 260.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
 		"weapon": "cannon",
 		"tech": 3,
 	},
@@ -468,6 +646,7 @@ const UNITS := {
 		"radius": 10.0,
 		"vision": 240.0,
 		"producer": "barracks",
+		"requires_upgrade": "barracks",
 		"weapon": "heavy_rifle",
 		"tech": 5,
 	},
@@ -482,10 +661,12 @@ const UNITS := {
 		"cooldown": 2.9,
 		"radius": 22.0,
 		"vision": 270.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
+		"requires_upgrade": "heavy_factory",
 		"weapon": "twin_plasma",
 		"splash": 64.0,
 		"splash_fraction": 0.55,
+		"requires_ix": true,
 		"tech": 6,
 	},
 
@@ -516,7 +697,7 @@ const UNITS := {
 		"cooldown": 1.7,
 		"radius": 17.0,
 		"vision": 270.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
 		"weapon": "cannon",
 		"tech": 3,
 	},
@@ -532,6 +713,7 @@ const UNITS := {
 		"radius": 9.0,
 		"vision": 240.0,
 		"producer": "barracks",
+		"requires_upgrade": "barracks",
 		"weapon": "demolition",
 		"tech": 5,
 	},
@@ -546,9 +728,11 @@ const UNITS := {
 		"cooldown": 4.2,
 		"radius": 16.0,
 		"vision": 300.0,
-		"producer": "factory",
+		"producer": "heavy_factory",
+		"requires_upgrade": "heavy_factory",
 		"weapon": "gas",
 		"special": "deviate",
+		"requires_ix": true,
 		"tech": 6,
 	},
 }

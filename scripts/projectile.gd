@@ -83,7 +83,17 @@ func _process(delta: float) -> void:
 	var desired := to_target.angle()
 	var diff := angle_difference(velocity.angle(), desired)
 	velocity = Vector2.RIGHT.rotated(velocity.angle() + clampf(diff, -turn_rate * delta, turn_rate * delta)) * speed
+	var from_pos := global_position
 	global_position += velocity * delta
+	# Direct-fire shells and bullets strike an enemy wall tile in their path.
+	# The sweep prevents a fast round skipping over a wall on a lagged frame.
+	# Artillery arcs over it, and rockets have their own high-flight path.
+	if style != "artillery" and game != null:
+		var wall = game.wall_at_segment(from_pos, global_position, source_team)
+		if wall != null and wall != target:
+			target = wall
+			_impact()
+			return
 	if age >= LIFETIME:
 		_impact()
 		return
@@ -98,7 +108,7 @@ func _impact() -> void:
 		var target_class := "building"
 		if target.has_method("damage_class"):
 			target_class = target.damage_class()
-		target.take_damage(damage * GameDefs.damage_multiplier(weapon, target_class))
+		target.take_damage(damage * GameDefs.damage_multiplier(weapon, target_class), weapon)
 	if splash_radius > 0.0:
 		for u in game.units:
 			if u == target or not is_instance_valid(u) or u.dead or u.team == source_team:
@@ -149,7 +159,7 @@ func _splash_at(victim, hit_pos: Vector2, body_radius: float) -> void:
 	if victim.has_method("damage_class"):
 		target_class = victim.damage_class()
 	victim.take_damage(damage * splash_fraction * (0.45 + 0.55 * falloff)
-		* GameDefs.damage_multiplier(weapon, target_class))
+		* GameDefs.damage_multiplier(weapon, target_class), weapon)
 
 func _draw() -> void:
 	if style == "artillery":

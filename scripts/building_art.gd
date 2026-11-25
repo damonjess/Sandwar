@@ -38,6 +38,14 @@ const ART_TOPS := {
 	"windtrap": -66.5,
 	"barracks": -63.5,
 	"factory": -144.0,
+	"heavy_factory": -202.0,
+	"silo": -82.0,
+	"outpost": -111.0,
+	"repair_pad": -151.0,
+	"starport": -236.0,
+	"hightech": -159.0,
+	"ix": -153.0,
+	"palace": -180.0,
 	"turret": -17.0,
 	"rocketturret": -17.5,
 	"wall": -23.0,
@@ -49,6 +57,10 @@ static var _sheets: Dictionary = {}
 static var _icons: Dictionary = {}
 static var _shader: Shader
 static var _hud_mats: Dictionary = {}
+## Measured roof height per structure, in world pixels relative to the pad
+## centre. The old ART_TOPS constants were tuned by hand and drifted badly from
+## the 2x high-DPI sheets, leaving health bars floating above tall buildings.
+static var _visual_tops: Dictionary = {}
 
 static func has_art(id: String) -> bool:
 	return ResourceLoader.exists(_sheet_path(id))
@@ -77,6 +89,26 @@ static func head(id: String) -> Texture2D:
 
 static func art_top(id: String) -> float:
 	return float(ART_TOPS.get(id, -96.0))
+
+## Top of the visible roof in world pixels, measured from the baked sheet's
+## real alpha bounds and scaled exactly like the StructureView that draws it.
+## Falls back to the hand-tuned constant only when the image cannot be read.
+static func visual_top(id: String, visual_scale := WORLD_SPRITE_SCALE) -> float:
+	var key := "%s:%.4f" % [id, visual_scale]
+	if _visual_tops.has(key):
+		return float(_visual_tops[key])
+	var top := art_top(id)
+	var tex := sheet(id)
+	if tex != null:
+		var img := tex.get_image()
+		if img != null:
+			var used := img.get_used_rect()
+			if used.size.y > 0 and tex.get_height() > 0:
+				# used.position.y is the highest opaque pixel row of the whole
+				# sheet, so the bar clears every idle and damaged frame.
+				top = (float(used.position.y) - float(tex.get_height()) * 0.25) * visual_scale
+	_visual_tops[key] = top
+	return top
 
 static func turret_visual_scale(id: String) -> float:
 	return TURRET_VISUAL_SCALE if id == "turret" or id == "rocketturret" else WORLD_SPRITE_SCALE

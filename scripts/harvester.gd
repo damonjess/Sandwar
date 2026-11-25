@@ -10,6 +10,12 @@ var spice_tile := Vector2i(-1, -1)
 var harvest_tick := 0.0
 var idle_timer := 0.0
 var dust_clock := 0.0
+## The baked hull has drive/harvest poses. Live dust, exhaust and ore spray
+## supply the continuous motion between them.
+var _exhaust_accum := 0.0
+var _dust_accum := 0.0
+var _plume_accum := 0.0
+var _spice_accum := 0.0
 
 func configure(id: String, team_id: int, g) -> void:
 	super.configure(id, team_id, g)
@@ -17,6 +23,8 @@ func configure(id: String, team_id: int, g) -> void:
 	capacity = 300.0
 
 func _tick_orders(delta: float) -> void:
+	if service_repair_pad(delta):
+		return
 	match state:
 		"seek":
 			var tile: Vector2i = game.terrain.find_spice_tile(game.terrain.tile_of(global_position), 40)
@@ -123,6 +131,49 @@ func _head_to_refinery() -> void:
 func _process(delta: float) -> void:
 	super._process(delta)
 	dust_clock += delta
+	var working := state == "harvest"
+	if game == null or game.fx == null:
+		return
+	var moving := locomoting or has_move
+	if not working and not moving:
+		return
+	var back := -Vector2.RIGHT.rotated(facing)
+	# The tall rear stack belches hard under load and idles softer on the move.
+	_exhaust_accum += delta
+	var exhaust_gap := 0.085 if working else 0.19
+	if _exhaust_accum >= exhaust_gap:
+		_exhaust_accum = 0.0
+		# One tall rear stack on the left sponson.
+		var stack: Vector2 = Vector2(-24.0, -12.0).rotated(facing)
+		game.fx.exhaust_plume(global_position + stack, back, 1.35 if working else 0.9)
+	# Ore spray belongs to the cutting edge, not to the ground type, so it is
+	# emitted before the open-sand gate below.
+	if working:
+		var scoop: Vector2 = Vector2(33.0, 0.0).rotated(facing)
+		_spice_accum += delta
+		if _spice_accum >= 0.055:
+			_spice_accum = 0.0
+			game.fx.spice_kick(global_position + scoop + Vector2(0.0, -2.0), -back, 1.0)
+			game.fx.spice_kick(global_position + scoop + Vector2(0.0, 3.0), back, 0.75)
+	# Only open sand throws a dust plume; concrete pads and spice patches do not.
+	var on_sand: bool = game.terrain != null \
+			and game.terrain.is_open_sand(game.terrain.tile_of(global_position))
+	if not on_sand:
+		return
+	_dust_accum += delta
+	_plume_accum += delta if moving else 0.0
+	if moving and _plume_accum >= 0.13:
+		_plume_accum = 0.0
+		var tail: Vector2 = global_position + back * (radius * 0.95) + Vector2(0.0, 2.0)
+		game.fx.trail_dust(tail, back, 1.15)
+	var dust_gap := 0.075 if working else 0.14
+	if _dust_accum < dust_gap:
+		return
+	_dust_accum = 0.0
+	for side in [-1.0, 1.0]:
+		var sponson: Vector2 = Vector2(-8.0, float(side) * 11.0).rotated(facing)
+		game.fx.track_dust(global_position + sponson, back, 1.0)
+	game.fx.track_dust(global_position + Vector2(33.0, 0.0).rotated(facing), -back, 0.9)
 
 func _idle(delta: float) -> void:
 	has_move = false
@@ -130,6 +181,31 @@ func _idle(delta: float) -> void:
 	if idle_timer > 1.5:
 		idle_timer = 0.0
 		state = "seek"
+
+## Live feedback over the baked dozer row: a vibrating cutting edge and warm
+## ore motes, plus the full-hopper heat glow. The blade itself is baked, so no
+## fake drums are drawn on top of the new model.
+func _draw_machinery() -> void:
+	var front := Vector2.RIGHT.rotated(facing)
+	var side := Vector2(-front.y, front.x)
+	if state == "harvest":
+		var jitter := sin(dust_clock * 22.0) * 1.2
+		var edge: Vector2 = front * 33.0 + Vector2(0.0, 1.0 + jitter)
+		draw_line(edge - side * 9.0, edge + side * 9.0,
+			Color(0.98, 0.80, 0.20, 0.50), 1.1, true)
+		for i in 4:
+			var phase := fmod(dust_clock * 2.3 + float(i) * 0.27, 1.0)
+			var p: Vector2 = front * (30.0 + phase * 7.0) \
+				+ side * sin(dust_clock * 8.0 + float(i)) * 7.0 \
+				+ Vector2(0.0, -phase * 13.0)
+			draw_circle(p, 1.1 + phase * 1.5,
+				Color(0.98, 0.52, 0.10, (1.0 - phase) * 0.48))
+	# A faint hot glow from the loaded hopper.
+	if cargo > capacity * 0.30:
+		var k := clampf(cargo / capacity, 0.0, 1.0)
+		var glow := Vector2(-7.0, 0.0)
+		var pulse := 0.75 + 0.25 * sin(dust_clock * 4.0)
+		draw_circle(glow, 7.5 * k * pulse, Color(1.0, 0.42, 0.06, 0.10 + 0.10 * k))
 
 func _draw() -> void:
 	# Baked hull direction handles the facing; this live dust and scoop jitter
@@ -147,6 +223,7 @@ func _draw() -> void:
 			draw_circle(front * (radius * 0.9) + Vector2(0.0, 4.0 + jitter), 3.0,
 				Color(0.95, 0.62, 0.20, 0.55))
 	super._draw()
+	_draw_machinery()
 	if cargo > 1.0:
 		var w := 30.0
 		var k := clampf(cargo / capacity, 0.0, 1.0)

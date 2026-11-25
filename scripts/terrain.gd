@@ -7,12 +7,12 @@ extends Node2D
 ## buildable stone, dark crag transitions and concrete that belongs to the
 ## same desert instead of reading as a separate grey tileset.
 
-const SAND_LIGHT := Color("e6cca3")
-const SAND_DARK := Color("d8b888")
-const ROCK_LIGHT := Color("c87e4e")
-const ROCK_DARK := Color("ba6d3e")
-const CLIFF := Color(0.40, 0.22, 0.12)
-const CLIFF_DARK := Color(0.16, 0.08, 0.04)
+const SAND_LIGHT := Color("f2d3a4")
+const SAND_DARK := Color("c99a67")
+const ROCK_LIGHT := Color("dc9d67")
+const ROCK_DARK := Color("b87845")
+const CLIFF := Color(0.38, 0.20, 0.11)
+const CLIFF_DARK := Color(0.15, 0.07, 0.035)
 const SLAB := Color("c99a74")
 const SLAB_INNER := Color("d7b18d")
 
@@ -471,20 +471,20 @@ func _draw_spice_blooms(m: int, t: float) -> void:
 			var center := Vector2(float(x) + 0.5, float(y) + 0.5) * t
 			var density := clampf((amount - 4.0) / 220.0, 0.0, 1.0)
 			var dust := _variant_index(x, y, SPICE_DUST_VARIANTS)
-			var size := lerpf(82.0, 104.0, density)
-			var alpha := lerpf(0.58, 0.90, pow(density, 0.72))
+			var size := lerpf(80.0, 101.0, density)
+			var alpha := lerpf(0.60, 0.86, pow(density, 0.72))
 			_draw_spice_cell(dust, center + _spice_jitter(x, y, 0), size, alpha)
 
 	for y in m:
 		for x in m:
 			var amount := spice[y * m + x]
-			if amount < 88.0:
+			if amount < 72.0:
 				continue
 			var center := Vector2(float(x) + 0.5, float(y) + 0.5) * t
-			var density := clampf((amount - 88.0) / 150.0, 0.0, 1.0)
+			var density := clampf((amount - 72.0) / 150.0, 0.0, 1.0)
 			var core := SPICE_DUST_VARIANTS + _variant_index(x, y, SPICE_CORE_VARIANTS)
-			var size := lerpf(58.0, 84.0, density)
-			var alpha := lerpf(0.56, 0.98, density)
+			var size := lerpf(50.0, 76.0, density)
+			var alpha := lerpf(0.68, 0.98, density)
 			_draw_spice_cell(core, center + _spice_jitter(x, y, 17), size, alpha)
 
 func _draw_legacy_spice(m: int, t: float) -> void:

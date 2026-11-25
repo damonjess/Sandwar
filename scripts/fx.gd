@@ -26,6 +26,18 @@ var nukes: Array = []
 var wind: Array = []
 var wind_clock := 0.0
 const WIND_COUNT := 52
+## Harvester machinery: dark stack smoke and track-sponson sand spray. Both are
+## emitter-fed, so a working rig streams continuously without a node per puff.
+var exhausts: Array = []
+var dust_kicks: Array = []
+## Slow, soft sand clouds that rise behind moving heavy vehicles.
+var trail_dusts: Array = []
+## Bright ore thrown forward by the dozer scoop while mining.
+var spice_kicks: Array = []
+const EXHAUST_LIMIT := 190
+const DUST_LIMIT := 170
+const TRAIL_DUST_LIMIT := 150
+const SPICE_LIMIT := 120
 
 func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -75,6 +87,60 @@ func nuke(pos: Vector2) -> void:
 func popup(text: String, pos: Vector2) -> void:
 	texts.append({"text": text, "p": pos, "t": 0.0})
 
+## One heavy soot puff from a harvester exhaust stack. `drift` is the hull's
+## backward direction, so the plume trails the rig while it works.
+func exhaust_plume(pos: Vector2, drift := Vector2.ZERO, power := 1.0) -> void:
+	if exhausts.size() >= EXHAUST_LIMIT:
+		exhausts.pop_front()
+	exhausts.append({
+		"p": pos,
+		"v": drift.normalized() * randf_range(7.0, 15.0) + Vector2(randf_range(-5.0, 5.0), -randf_range(17.0, 30.0)),
+		"r": randf_range(2.6, 4.2) * power,
+		"t": 0.0,
+		"life": randf_range(0.85, 1.35),
+		"power": power,
+	})
+
+## Sand and grit thrown out from under a track sponson.
+func track_dust(pos: Vector2, drift := Vector2.ZERO, power := 1.0) -> void:
+	if dust_kicks.size() >= DUST_LIMIT:
+		dust_kicks.pop_front()
+	dust_kicks.append({
+		"p": pos,
+		"v": drift.normalized() * randf_range(10.0, 26.0) + Vector2(randf_range(-8.0, 8.0), randf_range(-10.0, -2.0)),
+		"r": randf_range(2.2, 4.0) * power,
+		"t": 0.0,
+		"life": randf_range(0.45, 0.85),
+		"chunk": randf_range(0.0, 1.0) < 0.45,
+	})
+
+## A soft desert plume dragged behind heavy tracks. Unlike the short grit
+## spray above, this rises and expands for over a second, so a moving column
+## leaves a warm dust trail without a node per puff.
+func trail_dust(pos: Vector2, drift := Vector2.ZERO, power := 1.0) -> void:
+	if trail_dusts.size() >= TRAIL_DUST_LIMIT:
+		trail_dusts.pop_front()
+	trail_dusts.append({
+		"p": pos,
+		"v": drift.normalized() * randf_range(2.0, 9.0) + Vector2(randf_range(-5.0, 5.0), -randf_range(12.0, 24.0)),
+		"r": randf_range(3.4, 6.2) * power,
+		"t": 0.0,
+		"life": randf_range(1.0, 1.75),
+	})
+
+## Orange spice granules thrown off the harvester's cutting edge. Kept
+## separate from sand so the load reads even over warm desert ground.
+func spice_kick(pos: Vector2, drift := Vector2.ZERO, power := 1.0) -> void:
+	if spice_kicks.size() >= SPICE_LIMIT:
+		spice_kicks.pop_front()
+	spice_kicks.append({
+		"p": pos,
+		"v": drift.normalized() * randf_range(12.0, 30.0) + Vector2(randf_range(-13.0, 13.0), randf_range(-25.0, -8.0)),
+		"r": randf_range(1.4, 2.9) * power,
+		"t": 0.0,
+		"life": randf_range(0.35, 0.72),
+	})
+
 ## A desert shockwave: concentric ellipses plus a spray of sand chunks.
 func sand_burst(pos: Vector2, radius := 72.0, power := 1.0) -> void:
 	bursts.append({"p": pos, "r": radius, "power": power, "t": 0.0})
@@ -85,7 +151,10 @@ func sonic_wave(from: Vector2, dir: Vector2, length: float, team: int) -> void:
 
 func _process(delta: float) -> void:
 	_advance_wind(delta)
-	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty() and waves.is_empty() and bursts.is_empty() and gas_clouds.is_empty() and nukes.is_empty() and wind.is_empty():
+	if flashes.is_empty() and impacts.is_empty() and blasts.is_empty() and texts.is_empty() \
+			and waves.is_empty() and bursts.is_empty() and gas_clouds.is_empty() and nukes.is_empty() \
+			and wind.is_empty() and exhausts.is_empty() and dust_kicks.is_empty() \
+			and trail_dusts.is_empty() and spice_kicks.is_empty():
 		return
 	for f in flashes:
 		f["t"] = float(f["t"]) + delta
@@ -104,6 +173,22 @@ func _process(delta: float) -> void:
 		c["t"] = float(c["t"]) + delta
 	for n in nukes:
 		n["t"] = float(n["t"]) + delta
+	for e in exhausts:
+		e["t"] = float(e["t"]) + delta
+		e["p"] = e["p"] + e["v"] * delta
+		e["v"] = Vector2(float(e["v"].x) * 0.985, float(e["v"].y) - 4.0 * delta)
+	for d in dust_kicks:
+		d["t"] = float(d["t"]) + delta
+		d["p"] = d["p"] + d["v"] * delta
+		d["v"] = Vector2(float(d["v"].x) * 0.90, float(d["v"].y) + 22.0 * delta)
+	for d in trail_dusts:
+		d["t"] = float(d["t"]) + delta
+		d["p"] = d["p"] + d["v"] * delta
+		d["v"] = Vector2(float(d["v"].x) * 0.985, float(d["v"].y) * 0.975)
+	for s in spice_kicks:
+		s["t"] = float(s["t"]) + delta
+		s["p"] = s["p"] + s["v"] * delta
+		s["v"] = Vector2(float(s["v"].x) * 0.96, float(s["v"].y) + 120.0 * delta)
 	flashes = flashes.filter(func(f): return float(f["t"]) < float(f["life"]))
 	impacts = impacts.filter(func(i): return float(i["t"]) < float(i["life"]))
 	blasts = blasts.filter(func(b): return float(b["t"]) < 0.5)
@@ -112,10 +197,17 @@ func _process(delta: float) -> void:
 	bursts = bursts.filter(func(s): return float(s["t"]) < 0.9)
 	gas_clouds = gas_clouds.filter(func(c): return float(c["t"]) < float(c["life"]))
 	nukes = nukes.filter(func(n): return float(n["t"]) < float(n["life"]))
+	exhausts = exhausts.filter(func(e): return float(e["t"]) < float(e["life"]))
+	dust_kicks = dust_kicks.filter(func(d): return float(d["t"]) < float(d["life"]))
+	trail_dusts = trail_dusts.filter(func(d): return float(d["t"]) < float(d["life"]))
+	spice_kicks = spice_kicks.filter(func(s): return float(s["t"]) < float(s["life"]))
 	queue_redraw()
 
 func _draw() -> void:
 	_draw_wind()
+	_draw_dust_kicks()
+	_draw_trail_dusts()
+	_draw_spice_kicks()
 	for s in bursts:
 		_draw_sand_burst(s)
 	for c in gas_clouds:
@@ -130,6 +222,7 @@ func _draw() -> void:
 		draw_circle(b["p"], r * 0.55, Color(1.0, 0.86, 0.34, k * 0.88))
 	for n in nukes:
 		_draw_nuke(n)
+	_draw_exhausts()
 	for w in waves:
 		_draw_wave(w)
 	for f in flashes:
@@ -148,6 +241,55 @@ func _draw() -> void:
 			POPUP_FONT_SIZE, 2, Color(POPUP_OUTLINE.r, POPUP_OUTLINE.g, POPUP_OUTLINE.b, 0.96 * k))
 		draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1,
 			POPUP_FONT_SIZE, Color(fill.r, fill.g, fill.b, k))
+
+## Track spray sits low and settles fast: pale sand puffs plus tumbling grit.
+func _draw_dust_kicks() -> void:
+	for d in dust_kicks:
+		var k := clampf(float(d["t"]) / float(d["life"]), 0.0, 1.0)
+		var fade := 1.0 - k
+		var p: Vector2 = d["p"]
+		var r := float(d["r"]) * (1.0 + k * 1.7)
+		draw_circle(p, r, Color(0.68, 0.55, 0.37, 0.20 * fade))
+		draw_circle(p + Vector2(-1.0, -1.5), r * 0.58, Color(0.86, 0.73, 0.52, 0.20 * fade))
+		if bool(d["chunk"]):
+			draw_rect(Rect2(p + Vector2(r * 0.3, -k * 5.0), Vector2(2.0, 2.0)),
+				Color(0.45, 0.33, 0.19, 0.55 * fade))
+
+## Warm dust veils that soften as they rise. Three low-alpha discs per puff
+## keep the plume volumetric without turning into a solid orange circle.
+func _draw_trail_dusts() -> void:
+	for d in trail_dusts:
+		var k := clampf(float(d["t"]) / float(d["life"]), 0.0, 1.0)
+		var fade := pow(1.0 - k, 1.25)
+		var p: Vector2 = d["p"]
+		var r := float(d["r"]) * (1.0 + k * 3.0)
+		draw_circle(p, r, Color(0.55, 0.42, 0.27, 0.13 * fade))
+		draw_circle(p + Vector2(-1.2, -1.8), r * 0.78, Color(0.72, 0.58, 0.40, 0.14 * fade))
+		draw_circle(p + Vector2(-2.6, -3.4), r * 0.42, Color(0.90, 0.77, 0.56, 0.12 * fade))
+
+## A bright orange granule with a dark rim so it pops over tan sand.
+func _draw_spice_kicks() -> void:
+	for s in spice_kicks:
+		var k := clampf(float(s["t"]) / float(s["life"]), 0.0, 1.0)
+		var fade := 1.0 - k
+		var p: Vector2 = s["p"]
+		var r := float(s["r"]) * (1.0 + k * 0.35)
+		draw_circle(p, r + 0.8, Color(0.30, 0.12, 0.02, 0.45 * fade))
+		draw_circle(p, r, Color(0.98, 0.46, 0.08, 0.82 * fade))
+		draw_circle(p + Vector2(-0.5, -0.5), r * 0.42,
+			Color(1.0, 0.78, 0.28, 0.75 * fade))
+
+## Volumetric diesel smoke: a dark core, a warm dusty shell and a thinning
+## crown. The plume expands as it rises so it reads as volume, not dots.
+func _draw_exhausts() -> void:
+	for e in exhausts:
+		var k := clampf(float(e["t"]) / float(e["life"]), 0.0, 1.0)
+		var fade := 1.0 - k
+		var p: Vector2 = e["p"]
+		var r := float(e["r"]) * (1.0 + k * 3.4) * float(e["power"])
+		draw_circle(p, r * 1.30, Color(0.16, 0.135, 0.105, 0.13 * fade))
+		draw_circle(p + Vector2(0.6, -0.8), r * 0.92, Color(0.20, 0.170, 0.130, 0.24 * fade))
+		draw_circle(p + Vector2(-0.4, -1.6), r * 0.52, Color(0.33, 0.290, 0.240, 0.20 * fade))
 
 func _draw_sand_burst(s: Dictionary) -> void:
 	var k := clampf(float(s["t"]) / 0.9, 0.0, 1.0)

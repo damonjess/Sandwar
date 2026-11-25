@@ -40,6 +40,15 @@ var selected := false
 ## automatic engagement. A normal move or attack order clears this state.
 var guarding := false
 var guard_anchor := Vector2.ZERO
+## Repair Pad service: while set, the hull drives onto the deck and ignores
+## normal combat until it is whole again.
+var repair_pad = null
+var repair_debt := 0.0
+## Once the deck has finished welding the hull back together it must clear the
+## pad's solid footprint before normal movement resumes, otherwise it would be
+## stranded inside a structure's keep-out box.
+var repair_departing := false
+var repair_exit := Vector2.ZERO
 var facing := 0.0
 var barrel_side := 1.0
 var rocket_salvo_left := 0
@@ -62,18 +71,26 @@ var anim_clock := 0.0
 ## House-unique behaviour flags, copied from GameDefs.UNITS.
 var special := ""
 var stealth := 0.0
+## Palace Saboteur cloak, and the one-shot demolition charge it carries.
+var stealth_timer := 0.0
+var suicide_charge := false
 var splash_radius := 0.0
 var splash_fraction := 0.0
 ## Deviator conversion: the unit fights for another house until the timer
 ## expires, then reverts to its original owner.
 var charm_timer := 0.0
 var charm_team := -1
-## Tracked hulls leave faint dust tracks on open sand; the heavy ones also puff
-## exhaust while driving. Infantry and wheeled scouts stay clean.
-const TRACKED_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "harvester"]
-const EXHAUST_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator"]
-const TREAD_SPACING := 14.0
+## Ground vehicles mar open sand with crisp parallel treads. Trikes and Quads
+## are wheeled but still leave a narrow pair of sandy ruts; infantry stay clean.
+const TRACK_MARK_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank",
+	"sonic_tank", "devastator", "harvester", "mcv", "trike", "raider_trike", "quad"]
+const EXHAUST_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "mcv"]
+## Heavy tracked hulls also drag a soft dust plume behind them.
+const HEAVY_DUST_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "mcv"]
+const TREAD_SPACING := 12.0
+const TRAIL_DUST_SPACING := 24.0
 var _tread_accum := 0.0
+var _trail_dust_accum := 0.0
 
 func configure(id: String, team_id: int, g) -> void:
 	type_id = id
@@ -95,6 +112,7 @@ func configure(id: String, team_id: int, g) -> void:
 	bob = randf() * TAU
 	anim_clock = randf() * TAU
 	_tread_accum = randf() * TREAD_SPACING
+	_trail_dust_accum = randf() * TRAIL_DUST_SPACING
 	turret_facing = facing
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if UnitArt.has_art(id):
@@ -148,9 +166,20 @@ func _revert_charm() -> void:
 			game.fx.popup("CONTROL LOST", global_position + Vector2(0.0, -24.0))
 	queue_redraw()
 
+## Palace Saboteur: a temporary cloak and a much faster pair of legs, so the
+## specialist can slip through a defensive line and reach a structure.
+func arm_sabotage() -> void:
+	suicide_charge = true
+	stealth = 220.0
+	stealth_timer = 25.0
+	speed = maxf(speed, 118.0)
+	queue_redraw()
+
 func order_move(pos: Vector2) -> void:
 	guarding = false
 	attack_target = null
+	repair_pad = null
+	repair_departing = false
 	set_destination(pos)
 
 func order_attack(target) -> void:
@@ -158,6 +187,8 @@ func order_attack(target) -> void:
 		return
 	guarding = false
 	attack_target = target
+	repair_pad = null
+	repair_departing = false
 	has_move = false
 	path.clear()
 
@@ -165,6 +196,8 @@ func order_guard() -> void:
 	guarding = true
 	guard_anchor = global_position
 	attack_target = null
+	repair_pad = null
+	repair_departing = false
 	has_move = false
 	move_target = global_position
 	nav_target = global_position
@@ -179,11 +212,21 @@ func set_destination(pos: Vector2) -> void:
 	stuck_anchor = global_position
 	has_move = true
 	if game != null:
-		path = game.find_path(global_position, pos)
+		# An order onto a building pad or other solid tile resolves to the
+		# closest open tile, so the nav target itself is never inside a roof.
+		var tile: Vector2i = game.terrain.tile_of(pos)
+		if game.astar != null and game.astar.is_point_solid(tile):
+			var open: Vector2i = game._open_tile(tile)
+			if open.x >= 0:
+				nav_target = game.terrain.tile_center(open)
+		path = game.find_path(global_position, nav_target)
 	else:
 		path = []
 
-func take_damage(amount: float) -> void:
+## `weapon` is accepted for parity with Building.take_damage(); projectile and
+## rocket impact code passes it for wall/foundation rules, while a unit's
+## damage multiplier has already been applied before this call.
+func take_damage(amount: float, _weapon := "") -> void:
 	if dead or airborne:
 		return
 	hp -= amount
@@ -212,6 +255,10 @@ func _process(delta: float) -> void:
 		charm_timer -= delta
 		if charm_timer <= 0.0:
 			_revert_charm()
+	if stealth_timer > 0.0:
+		stealth_timer = maxf(0.0, stealth_timer - delta)
+		if stealth_timer <= 0.0 and suicide_charge:
+			stealth = 0.0
 	locomoting = false
 	cooldown = maxf(0.0, cooldown - delta)
 	flash = maxf(0.0, flash - delta * 4.0)
@@ -220,9 +267,41 @@ func _process(delta: float) -> void:
 	# Idle bodies fan out instead of sharing a pixel, as long as the step stays
 	# on open ground.
 	_settle_separation(delta)
+	_push_out_of_buildings()
 	queue_redraw()
 
+## Shared repair-pad approach used by combat hulls and the Harvester subclass.
+## Returns true while the pad owns this unit's movement.
+func service_repair_pad(delta: float) -> bool:
+	if repair_pad == null:
+		return false
+	if not is_instance_valid(repair_pad) or repair_pad.dead or repair_pad.team != team:
+		repair_pad = null
+		repair_departing = false
+		return false
+	attack_target = null
+	guarding = false
+	if repair_departing:
+		has_move = false
+		path.clear()
+		if global_position.distance_to(repair_exit) > 8.0:
+			_advance_toward(repair_exit, delta)
+		else:
+			# Clear of the deck: release control back to normal orders.
+			repair_departing = false
+			repair_pad = null
+		return true
+	if global_position.distance_to(repair_pad.global_position) > 10.0:
+		has_move = false
+		_advance_toward(repair_pad.global_position, delta)
+	else:
+		has_move = false
+		path.clear()
+	return true
+
 func _tick_orders(delta: float) -> void:
+	if service_repair_pad(delta):
+		return
 	if attack_target != null:
 		if not is_instance_valid(attack_target) or not attack_target.is_alive():
 			attack_target = null
@@ -238,7 +317,13 @@ func _tick_orders(delta: float) -> void:
 	if has_move:
 		_follow_path(delta)
 	elif damage > 0.0:
-		var enemy = game.nearest_enemy(global_position, team, attack_range * 1.7)
+		# Rocket troopers are the infantry answer to aircraft; ordinary ground
+		# weapons keep ignoring the Ornithopter squadron.
+		var enemy = null
+		if _is_rocket_weapon():
+			enemy = game.nearest_air_target(global_position, team, attack_range * 2.4)
+		if enemy == null:
+			enemy = game.nearest_enemy(global_position, team, attack_range * 1.7)
 		if enemy != null:
 			attack_target = enemy
 
@@ -316,7 +401,7 @@ func _escape_buildings(step: float) -> Vector2:
 	for b in game.buildings:
 		if not is_instance_valid(b) or b.dead:
 			continue
-		var box: Rect2 = b.world_rect().grow(radius * 0.8)
+		var box: Rect2 = b.world_rect().grow(radius)
 		if not box.has_point(global_position):
 			continue
 		var out := global_position - box.get_center()
@@ -332,16 +417,65 @@ func _escape_buildings(step: float) -> Vector2:
 func _safe_position(p: Vector2) -> bool:
 	if p.x < 16.0 or p.y < 16.0 or p.x > float(GameDefs.WORLD) - 16.0 or p.y > float(GameDefs.WORLD) - 16.0:
 		return false
+	# A hull on repair-pad service is cleared to roll onto that pad's deck even
+	# though the structure's keep-out box normally blocks ground traffic.
+	if repair_pad != null and is_instance_valid(repair_pad) and not repair_pad.dead \
+			and repair_pad.world_rect().grow(radius * 0.9).has_point(p):
+		return true
 	if game.astar != null:
 		var tile: Vector2i = game.terrain.tile_of(p)
 		if game.astar.is_point_solid(tile):
 			return false
+		# Test the hull's outer edge as well as its centre. A tank can straddle
+		# the last open tile and visually hang over a pad without this.
+		var reach := maxf(radius * 0.62, 7.0)
+		for corner in [Vector2(reach, 0.0), Vector2(-reach, 0.0),
+				Vector2(0.0, reach), Vector2(0.0, -reach)]:
+			if game.astar.is_point_solid(game.terrain.tile_of(p + corner)):
+				return false
 	for b in game.buildings:
 		if not is_instance_valid(b) or b.dead:
 			continue
-		if b.world_rect().grow(radius * 0.8).has_point(p):
+		if b.world_rect().grow(radius).has_point(p):
 			return false
 	return true
+
+## Last-resort anti-overlap. Crowd pressure, a spawn, or a scripted position
+## can leave a body inside a structure's padded world_rect; every tick resolves
+## it to the nearest safe side. This is what makes a roof unreachable rather
+## than merely unlikely, even for non-pathfinding shoves.
+func _push_out_of_buildings() -> void:
+	if airborne or game == null:
+		return
+	for b in game.buildings:
+		if not is_instance_valid(b) or b.dead:
+			continue
+		if repair_pad == b or (repair_pad != null and is_instance_valid(repair_pad) and repair_pad == b):
+			continue
+		var box: Rect2 = b.world_rect().grow(radius)
+		if not box.has_point(global_position):
+			continue
+		var candidates: Array[Vector2] = [
+			Vector2(box.position.x - 0.5, global_position.y),
+			Vector2(box.end.x + 0.5, global_position.y),
+			Vector2(global_position.x, box.position.y - 0.5),
+			Vector2(global_position.x, box.end.y + 0.5),
+		]
+		var best := global_position
+		var best_d := 1.0e20
+		for p in candidates:
+			p.x = clampf(p.x, 16.0, float(GameDefs.WORLD) - 16.0)
+			p.y = clampf(p.y, 16.0, float(GameDefs.WORLD) - 16.0)
+			if not _safe_position(p):
+				continue
+			var d := p.distance_squared_to(global_position)
+			if d < best_d:
+				best_d = d
+				best = p
+		if best_d < 1.0e20:
+			global_position = best
+			path.clear()
+			path_i = 0
 
 func _blocked_at(p: Vector2) -> bool:
 	return not _safe_position(p)
@@ -370,7 +504,7 @@ func _separation() -> Vector2:
 ## Smooth idle separation: overlapping bodies drift apart at a walking pace so a
 ## squad ordered onto one point fans out shoulder-to-shoulder.
 func _settle_separation(delta: float) -> void:
-	if locomoting or has_move or attack_target != null:
+	if repair_pad != null or locomoting or has_move or attack_target != null:
 		return
 	var push := _separation()
 	if push.length() < 0.05:
@@ -420,25 +554,38 @@ func _position_open(p: Vector2) -> bool:
 
 ## Classic Dune 2000 tracks: heavy vehicles flatten enemy infantry instead of
 ## being stopped by them.
-const CRUSH_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "harvester"]
+const CRUSH_TYPES := ["tank", "atreides_tank", "harkonnen_tank", "ordos_tank", "sonic_tank", "devastator", "harvester", "mcv"]
 
 func is_crusher() -> bool:
 	return CRUSH_TYPES.has(type_id)
 
-func is_tracked() -> bool:
-	return TRACKED_TYPES.has(type_id)
-
-## Stamp a dusty twin track every few pixels driven over open sand only.
+## Stamp a crisp twin track every 12 px driven over open sand only. The pair
+## width follows the hull radius, so a Trike leaves two narrow ruts and a MCV
+## cuts broad, deep bands. Heavy hulls also shed a soft dust plume.
 func _stamp_treads(moved: float) -> void:
-	if game == null or game.scorch_layer == null or not is_tracked():
+	if game == null or game.scorch_layer == null or not TRACK_MARK_TYPES.has(type_id):
 		return
-	_tread_accum += moved
-	if _tread_accum < TREAD_SPACING:
-		return
-	_tread_accum = 0.0
 	var tile: Vector2i = game.terrain.tile_of(global_position)
-	if game.terrain.is_open_sand(tile):
-		game.scorch_layer.tread(global_position, facing, clampf(radius / 9.0, 0.7, 1.3))
+	if not game.terrain.is_open_sand(tile):
+		return
+	var mark_scale := clampf(radius / 15.0, 0.72, 1.3)
+	_tread_accum += moved
+	if _tread_accum >= TREAD_SPACING:
+		_tread_accum = fmod(_tread_accum, TREAD_SPACING)
+		var gap := 4.9 + mark_scale * 4.1
+		game.scorch_layer.tread(global_position, facing, mark_scale, gap)
+	if not HEAVY_DUST_TYPES.has(type_id) or game.fx == null:
+		return
+	_trail_dust_accum += moved
+	if _trail_dust_accum < TRAIL_DUST_SPACING:
+		return
+	_trail_dust_accum = 0.0
+	var back := -Vector2.RIGHT.rotated(facing)
+	var across := Vector2(-back.y, back.x)
+	var power := clampf(radius / 16.0, 0.75, 1.4)
+	for side in [-1.0, 1.0]:
+		var tail: Vector2 = global_position + back * (radius * 0.88) + across * (side * radius * 0.58)
+		game.fx.trail_dust(tail, back, power)
 
 func _crush_enemies() -> void:
 	if not is_crusher():
@@ -458,6 +605,8 @@ func crushed_by(crusher) -> void:
 	die()
 
 func _tick_combat(delta: float) -> void:
+	if repair_pad != null:
+		return
 	# Rocket troopers carry two small tubes: the second missile follows the
 	# first, and each carries half the original 17 damage.
 	if _is_rocket_weapon() and rocket_salvo_left > 0:
@@ -488,6 +637,11 @@ func _tick_combat(delta: float) -> void:
 		facing = lerp_angle(facing, aim, minf(1.0, delta * 12.0))
 	var d := to_target.length()
 	if d > attack_range or cooldown > 0.0 or damage <= 0.0:
+		return
+	# Palace Saboteur: once pressed against an enemy structure the charge goes
+	# off, removing the building and the specialist together.
+	if suicide_charge and attack_target is Building and d <= attack_range * 0.92:
+		_detonate_sabotage(attack_target)
 		return
 	cooldown = cooldown_time
 	flash = 1.0
@@ -586,6 +740,27 @@ func _tick_combat(delta: float) -> void:
 func _is_rocket_weapon() -> bool:
 	return weapon == "rocket" or weapon == "quad_rocket"
 
+func _detonate_sabotage(structure) -> void:
+	if structure == null or not is_instance_valid(structure) or structure.dead:
+		return
+	var at := global_position
+	if structure != null and is_instance_valid(structure):
+		at = structure.global_position
+	structure.take_damage(720.0, "demolition")
+	if game != null:
+		if game.fx != null:
+			game.fx.blast(at, 1.7)
+			game.fx.impact(at, "cannon", 2.0)
+			game.fx.sand_burst(at, 112.0, 1.15)
+			game.fx.popup("SABOTAGE", at + Vector2(0.0, -46.0))
+		if game.scorch_layer != null:
+			game.scorch_layer.add(at, 42.0)
+		if game.camera != null:
+			game.camera.shake(0.75, 10.0)
+		game.play_sfx("explosion_building", at, 2.0, 0.86)
+	attack_target = null
+	die()
+
 func _launch_rocket(target, muzzle: Vector2, dir: Vector2, share := 1.0, scale := 0.55) -> void:
 	var rocket := RocketScript.new()
 	game.add_child(rocket)
@@ -614,7 +789,7 @@ func _fire_sonic(dir: Vector2) -> void:
 		if not is_instance_valid(b) or b.dead or b.team == team:
 			continue
 		if _line_distance(b.global_position, start, end) <= 24.0 + b.size_px * 0.28:
-			b.take_damage(damage * GameDefs.damage_multiplier("sonic", b.damage_class()))
+			b.take_damage(damage * GameDefs.damage_multiplier("sonic", b.damage_class()), "sonic")
 	if game.scorch_layer != null:
 		game.scorch_layer.add(end, 10.0)
 
@@ -673,9 +848,10 @@ func draw_baked_unit() -> void:
 		return
 	if type_id == "harvester":
 		var fill: float = clampf(float(get("cargo")) / maxf(float(get("capacity")), 1.0), 0.0, 1.0)
+		var working: bool = String(get("state")) == "harvest"
 		var harvest_tex := UnitArt.harvester_sheet(fill)
 		if harvest_tex != null:
-			draw_texture_rect_region(harvest_tex, dest, UnitArt.harvester_region(facing), tint)
+			draw_texture_rect_region(harvest_tex, dest, UnitArt.harvester_region(facing, working), tint)
 		return
 	if UnitArt.is_infantry(type_id):
 		var anim := 0
