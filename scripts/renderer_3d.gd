@@ -25,7 +25,9 @@ const AUTO_ORBIT_SPEED := deg_to_rad(26.0)
 const CAMERA_FOV := 32.0
 const CAMERA_BASE_DISTANCE := 18.2
 const CAMERA_MIN_ZOOM := 0.52
-const CAMERA_MAX_ZOOM := 2.65
+## Close enough to read vehicle detail without letting the camera leave the
+## playfield or push through the distant dune backdrop.
+const CAMERA_MAX_ZOOM := 1.85
 const PAN_SPEED := 760.0
 
 const BUILDING_DIR := "res://assets/models/buildings/"
@@ -37,6 +39,16 @@ const CRATER_SHADER := "res://shaders/crater_3d.gdshader"
 const PEBBLE_SHADER := "res://shaders/pebble_3d.gdshader"
 const SCATTER_SHADER := "res://shaders/scatter_3d.gdshader"
 const POST_DUST_SHADER := "res://shaders/post_dust_3d.gdshader"
+const PBR_DIR := "res://assets/textures/pbr/"
+const KIT_PROP_DIR := "res://assets/models/kitprops/"
+const KIT_SHADER := "res://shaders/kit_prop_3d.gdshader"
+## The Space Station kit ships its palette as an external atlas. Godot's GLB
+## import can miss that dependency if the raw download lacked the Textures
+## folder, so the runtime loader can attach the copied atlas itself.
+const KIT_ATLAS_FALLBACK := {
+	"container.glb": "Textures/colormap.png",
+	"pipe.glb": "Textures/colormap.png",
+}
 
 ## Pooled, GPU-faded ground decals. No Decal nodes are used: inverted-hull ink
 ## outlines, tread marks and craters are all plain meshes, so the whole Modern
@@ -152,6 +164,12 @@ var _tread_shader: Shader
 var _crater_shader: Shader
 var _pebble_shader: Shader
 var _outlined_materials: Dictionary = {}
+var _pbr_textures: Dictionary = {}
+var _pbr_materials: Dictionary = {}
+var _kit_props: Dictionary = {}
+var _kit_materials: Dictionary = {}
+var _kit_shader: Shader
+var _kit_white: ImageTexture
 var _atmosphere_clock := 0.0
 var _fx_blast_memo: Array = []
 var _fx_impact_memo: Array = []
@@ -278,8 +296,8 @@ func _build_world() -> void:
 	camera = Camera3D.new()
 	camera.name = "ModernCamera"
 	camera.fov = CAMERA_FOV
-	camera.near = 0.15
-	camera.far = 160.0
+	camera.near = 0.30
+	camera.far = 180.0
 	world.add_child(camera)
 	# Register as current only after the camera is inside the SubViewport's
 	# own World3D; assigning before add_child leaves the viewport camera-less.
@@ -390,13 +408,16 @@ func _build_materials() -> void:
 	# It gives every building a deliberate concrete base and hides the terrain
 	# triangles that meet underneath the model.
 	foundation_mesh = _make_foundation_mesh()
-	foundation_mat = StandardMaterial3D.new()
-	foundation_mat.albedo_color = Color(0.78, 0.72, 0.62)
+	foundation_mat = _pbr_material("concrete").duplicate()
+	foundation_mat.resource_name = "FoundationPBRConcrete"
+	foundation_mat.albedo_color = Color(1.24, 1.16, 1.05)
 	foundation_mat.vertex_color_use_as_albedo = true
-	foundation_mat.roughness = 0.93
-	foundation_mat.metallic = 0.0
-	foundation_mat.specular_mode = BaseMaterial3D.SPECULAR_TOON
-	foundation_mat.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	# Slabs are non-uniformly scaled to each footprint, so world triplanar is
+	# needed to keep the concrete grain square instead of stretching it.
+	foundation_mat.uv1_triplanar = true
+	foundation_mat.uv1_world_triplanar = true
+	foundation_mat.uv1_scale = Vector3(0.60, 0.60, 0.60)
+	foundation_mat.normal_scale = 0.78
 	# The slab has separate top/side geometry; disabling culling avoids any
 	# winding surprise on the gl_compatibility backend.
 	foundation_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -506,6 +527,143 @@ func _build_materials() -> void:
 	world.add_child(_selection_box_instance)
 
 
+## Shared PBR material library. Every texture is a real 1K CC0 scan imported
+## with VRAM compression; the maps stay cached so every building, vehicle and
+## kit prop samples one copy of each texture on Android.
+func _pbr_texture(role: String, file: String) -> Texture2D:
+	var key := role + "/" + file
+	if _pbr_textures.has(key):
+		return _pbr_textures[key]
+	var tex: Texture2D = null
+	var path := PBR_DIR + key
+	if ResourceLoader.exists(path):
+		tex = load(path) as Texture2D
+	_pbr_textures[key] = tex
+	return tex
+
+
+func _pbr_material(role: String) -> StandardMaterial3D:
+	if _pbr_materials.has(role):
+		return _pbr_materials[role]
+	var mat := StandardMaterial3D.new()
+	mat.resource_name = "PBR_" + role
+	var scale := 0.5
+	var normal_scale := 0.75
+	var metallic := 0.0
+	var tint := Color(1.0, 1.0, 1.0)
+	match role:
+		"sand":
+			scale = 0.34
+			normal_scale = 0.62
+			tint = Color(1.10, 0.965, 0.790)
+		"rock":
+			scale = 0.42
+			normal_scale = 0.80
+			tint = Color(1.32, 0.940, 0.680)
+		"concrete":
+			scale = 0.45
+			normal_scale = 0.72
+			tint = Color(1.04, 0.955, 0.830)
+		"corrugated":
+			scale = 0.62
+			normal_scale = 0.85
+			metallic = 0.38
+			tint = Color(1.30, 1.18, 0.98)
+		"metal_plates":
+			scale = 0.58
+			normal_scale = 0.78
+			metallic = 0.50
+			tint = Color(1.42, 1.30, 1.08)
+		"rust":
+			scale = 0.52
+			normal_scale = 0.88
+			metallic = 0.20
+			tint = Color(1.20, 0.94, 0.68)
+	mat.albedo_texture = _pbr_texture(role, "Color.jpg")
+	mat.albedo_color = tint
+	mat.normal_enabled = true
+	mat.normal_texture = _pbr_texture(role, "NormalGL.jpg")
+	mat.normal_scale = normal_scale
+	mat.roughness_texture = _pbr_texture(role, "Roughness.jpg")
+	mat.roughness = 1.0
+	mat.metallic = metallic
+	mat.metallic_specular = 0.5
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = false
+	mat.uv1_scale = Vector3.ONE * scale
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	mat.diffuse_mode = BaseMaterial3D.DIFFUSE_BURLEY
+	mat.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+	_pbr_materials[role] = mat
+	return mat
+
+
+## Assign a real PBR set to an imported GLB surface in place. The surface keeps
+## its material resource (and therefore its FactionTrim contract and ink pass),
+## but gains scanned albedo, normal and roughness in one shared texture.
+func _apply_pbr_to_surface(mat: StandardMaterial3D, role: String) -> void:
+	var pbr := _pbr_material(role)
+	if pbr == null:
+		return
+	mat.albedo_texture = pbr.albedo_texture
+	mat.albedo_color = pbr.albedo_color
+	mat.normal_enabled = true
+	mat.normal_texture = pbr.normal_texture
+	mat.normal_scale = pbr.normal_scale
+	mat.roughness_texture = pbr.roughness_texture
+	mat.roughness = 1.0
+	mat.metallic = pbr.metallic
+	mat.metallic_specular = 0.5
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = false
+	mat.uv1_scale = pbr.uv1_scale
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	# Painted / faction surfaces are deliberately excluded by _pbr_role_for;
+	# the remaining industrial plating should read as lit metal, not toon fill.
+	mat.diffuse_mode = BaseMaterial3D.DIFFUSE_BURLEY
+	mat.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+	mat.rim_enabled = true
+	mat.rim = 0.12
+	mat.rim_tint = 0.28
+
+
+## Map authored material roles to the four architectural PBR sets. Painted
+## livery (bone, ochre, sand, house colours) and every emissive/glass/cloth
+## surface are skipped so the Dune palette and FactionTrim stay readable.
+func _pbr_role_for(material_name: String, kind: String) -> String:
+	var n := material_name.to_lower()
+	if n.is_empty() or n.contains("faction") or n.contains("trim") or n.contains("runtime"):
+		return ""
+	# The sandworm is organic: keep its authored hide, scutes and gullet maps.
+	if kind == "worm":
+		return ""
+	for skip in ["glass", "lamp", "glow", "plasma", "spice", "gas", "flame",
+			"emitter", "eye", "tooth", "flesh", "gum", "hide", "cloth", "rubber",
+			"cable", "banner", "screen", "status", "hazard", "yellow", "soot"]:
+		if n.contains(skip):
+			return ""
+	if n.contains("rust"):
+		return "rust"
+	if n.contains("pad") or n.contains("concrete") or n.contains("slab"):
+		return "concrete"
+	if kind == "building" or kind == "turret_head":
+		if n.contains("louver") or n.contains("roof") or n.contains("wall") or n.contains("corrugat"):
+			return "corrugated"
+		# Sun-baked paint and weathered umber panels are authored livery, not
+		# bare structural metal; leave their baked maps intact.
+		if n.contains("sun_baked") or n.contains("weathered") or n.contains("worn_"):
+			return ""
+		if n.contains("steel") or n.contains("gunmetal") or n.contains("armor") \
+				or n.contains("grille") or n.contains("rim"):
+			return "metal_plates"
+		return ""
+	if kind == "unit" or kind == "air":
+		if n.contains("armor") or n.contains("hull") or n.contains("steel") \
+				or n.contains("gunmetal") or n.contains("grille") or n.contains("rim"):
+			return "metal_plates"
+	return ""
+
+
 ## Unit-footprint beveled concrete plinth. Vertices are coloured per face so
 ## the chipped top edge catches the sun without a texture lookup (and therefore
 ## stays cheap on gl_compatibility).
@@ -608,6 +766,13 @@ func _build_terrain() -> void:
 	sim_texture = ImageTexture.create_from_image(sim_image)
 	terrain_mat.set_shader_parameter("sim_map", sim_texture)
 	terrain_mat.set_shader_parameter("map_size", float(map_size))
+	# Real CC0 PBR scans replace the old flat procedural sand/rock/concrete
+	# colour fields. The shader blends two world-space tiles per material so
+	# the 1K scans never print a visible repeat across the 56-tile map.
+	for role in ["sand", "rock", "concrete"]:
+		terrain_mat.set_shader_parameter(role + "_color", _pbr_texture(role, "Color.jpg"))
+		terrain_mat.set_shader_parameter(role + "_normal", _pbr_texture(role, "NormalGL.jpg"))
+		terrain_mat.set_shader_parameter(role + "_rough", _pbr_texture(role, "Roughness.jpg"))
 
 	_build_height_field()
 	_build_terrain_geometry()
@@ -642,7 +807,7 @@ func _build_distant_dunes() -> void:
 	var transforms: Array[Transform3D] = []
 	for i in 16:
 		var angle := TAU * float(i) / 16.0 + rng.randf_range(-0.08, 0.08)
-		var radius := rng.randf_range(38.0, 72.0)
+		var radius := rng.randf_range(78.0, 112.0)
 		var p := Vector3(center + cos(angle) * radius, -0.4,
 			center + sin(angle) * radius)
 		var w := rng.randf_range(17.0, 31.0)
@@ -673,7 +838,7 @@ func _build_distant_dunes() -> void:
 	mat.albedo_color = Color(0.61, 0.475, 0.335)
 	mat.roughness = 0.98
 	mat.metallic = 0.0
-	mat.specular = 0.12
+	mat.metallic_specular = 0.12
 	inst.material_override = mat
 	world.add_child(inst)
 
@@ -972,8 +1137,16 @@ func _update_camera() -> void:
 
 func _clamp_focus(p: Vector2) -> Vector2:
 	# focus_px is stored in battlefield pixels, exactly like Camera2D.position.
+	# Keep the camera footprint over the tactical map too: focusing on the map
+	# edge at close zoom used to put the physical camera inside the distant
+	# dune spheres, filling the screen with the underside of the backdrop.
+	var distance := CAMERA_BASE_DISTANCE / maxf(camera_zoom, 0.05)
+	var horizontal := distance * cos(CAMERA_PITCH)
 	var limit := float(map_size * TILE)
-	return p.clamp(Vector2.ZERO, Vector2(limit, limit))
+	# horizontal is in world tiles; p and limit are in battlefield pixels.
+	var margin_px := minf((horizontal + 0.8) * float(TILE), limit * 0.35)
+	return p.clamp(Vector2(margin_px, margin_px),
+		Vector2(limit - margin_px, limit - margin_px))
 
 
 func focus_world(pos: Vector2) -> void:
@@ -1218,6 +1391,7 @@ func _sync_building(b, delta: float) -> void:
 		rec["pad_y"] = _pad_height_for_building(b)
 		if b.type_id != "wall":
 			_add_foundation(rec, rec["span"])
+		_add_building_kit_upgrades(rec, b)
 		_add_health_bar(rec)
 		_add_smoke(rec)
 		_add_selection_ring(rec, 1.0)
@@ -1230,11 +1404,15 @@ func _sync_building(b, delta: float) -> void:
 			# not a static diorama. The measured roof height keeps the stack at the
 			# crown of each authored model rather than a shared constant.
 			var roof := float(rec.get("model_height", 1.4))
-			var stack_pos := Vector3(float(GameDefs.size_of(b.type_id).x) * 0.18,
-				roof * 0.94, -float(GameDefs.size_of(b.type_id).y) * 0.16)
+			var stack_x := float(GameDefs.size_of(b.type_id).x) * 0.18
+			var stack_z := -float(GameDefs.size_of(b.type_id).y) * 0.16
 			if b.type_id == "refinery":
-				stack_pos = Vector3(float(GameDefs.size_of(b.type_id).x) * 0.28,
-					roof * 1.02, float(GameDefs.size_of(b.type_id).y) * 0.26)
+				stack_x = float(GameDefs.size_of(b.type_id).x) * 0.28
+				stack_z = float(GameDefs.size_of(b.type_id).y) * 0.26
+			# Sample the real roof under the stack instead of a fraction of the
+			# AABB, which includes cranes and antennae.
+			var stack_y := _roof_surface_height(rec, stack_x, stack_z, roof * 0.55)
+			var stack_pos := Vector3(stack_x, stack_y, stack_z)
 			# Give the plume a real stack to rise from. The authored models have
 			# vents and louvres, but no unmistakable chimney at this camera scale;
 			# a short soot-dark pipe makes the live exhaust legible and plants it
@@ -1518,7 +1696,7 @@ func _spawn_model(entity, kind: String, model_id: String, scale: float, register
 		mat.next_pass = ink_material
 		fallback.material_override = mat
 		holder.add_child(fallback)
-	_apply_model_style(holder)
+	_apply_model_style(holder, kind, model_id)
 	_apply_ink_variant(holder, kind, model_id)
 	var rec := {
 		"node": root,
@@ -1545,7 +1723,7 @@ func _spawn_model(entity, kind: String, model_id: String, scale: float, register
 ## Give every imported surface the shared concept-art treatment: an inverted
 ## hull ink pass plus a crisp, warm toon ramp. Materials are shared by the
 ## cached GLB scene, so each resource is touched once.
-func _apply_model_style(holder: Node3D) -> void:
+func _apply_model_style(holder: Node3D, kind := "", model_id := "") -> void:
 	if ink_material == null or holder == null:
 		return
 	for child in holder.find_children("*", "MeshInstance3D", true, false):
@@ -1576,6 +1754,12 @@ func _apply_model_style(holder: Node3D) -> void:
 				mat.albedo_color = mat.albedo_color * Color(0.68, 0.66, 0.62, 1.0)
 			if mat.normal_texture != null:
 				mat.normal_scale = maxf(mat.normal_scale, 0.82)
+			# Swap the baked 128px weathering map for a real CC0 PBR set where
+			# the authored material is structural metal, roof, wall or slab.
+			# FactionTrim, painted livery and emissive surfaces are untouched.
+			var pbr_role := _pbr_role_for(String(mat.resource_name), kind)
+			if not pbr_role.is_empty():
+				_apply_pbr_to_surface(mat, pbr_role)
 
 
 func _measure_model_height(holder: Node3D) -> float:
@@ -1583,6 +1767,51 @@ func _measure_model_height(holder: Node3D) -> float:
 	if bounds.size.y <= 0.0:
 		return 1.0
 	return maxf(0.35, bounds.size.y * holder.scale.y)
+
+
+## Highest authored surface under a local X/Z point, in the building root's
+## space. Roof props, trim and exhaust pipes use this instead of fractions of
+## the whole AABB: a crane mast or antenna can make the AABB much taller than
+## the actual roof, which is how hardware ended up hanging in mid-air.
+func _roof_surface_height(rec: Dictionary, x: float, z: float, fallback := -INF) -> float:
+	var node: Node3D = rec.get("node")
+	var holder: Node3D = rec.get("holder")
+	if node == null or holder == null or not is_instance_valid(node) \
+			or not is_instance_valid(holder):
+		return fallback
+	var top := float(rec.get("model_height", 1.4)) + 2.0
+	var from_node := Vector3(x, top, z)
+	var best := -INF
+	for child in holder.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var inv := mi.global_transform.affine_inverse() * node.global_transform
+		var to_node := inv.affine_inverse()
+		var local_from := inv * from_node
+		var local_dir := inv.basis * Vector3.DOWN
+		var mesh := mi.mesh
+		for s in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(s)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			if verts.is_empty():
+				continue
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var indexed := not indices.is_empty()
+			var count := indices.size() if indexed else verts.size()
+			for t in range(0, count, 3):
+				var i0 := indices[t] if indexed else t
+				var i1 := indices[t + 1] if indexed else t + 1
+				var i2 := indices[t + 2] if indexed else t + 2
+				var hit = Geometry3D.ray_intersects_triangle(local_from, local_dir,
+					verts[i0], verts[i1], verts[i2])
+				if hit == null:
+					continue
+				var hit_node: Vector3 = to_node * (hit as Vector3)
+				best = maxf(best, hit_node.y)
+	if best == -INF:
+		return fallback
+	return best
 
 
 func _model_bounds(holder: Node3D) -> AABB:
@@ -1651,6 +1880,9 @@ func _update_trim(rec: Dictionary, team: int) -> void:
 	if holder == null or not is_instance_valid(holder):
 		return
 	var mat := _trim_material(team)
+	var kit_panel = rec.get("kit_trim")
+	if kit_panel != null and is_instance_valid(kit_panel):
+		kit_panel.material_override = mat
 	for child in holder.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		if mi.mesh == null:
@@ -1768,6 +2000,9 @@ func _make_particles(amount: int, lifetime: float, mat: StandardMaterial3D, size
 	# world-space puffs are still visible; every smoke/dust system here needs a
 	# generous local box because particles rise and drift after birth.
 	p.visibility_aabb = AABB(Vector3(-8.0, -4.0, -8.0), Vector3(16.0, 14.0, 16.0))
+	# Soft billboards must never write into the shadow map: a single large dust
+	# puff casting a hard round shadow looked like a hole punched in the sand.
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.emitting = true
 	return p
 
@@ -1879,6 +2114,430 @@ func _add_process_dressing(rec: Dictionary) -> void:
 	rail.position = Vector3(0.0, height * 0.62, float(span.y) * 0.31)
 	rail.material_override = steel_mat
 	root.add_child(rail)
+
+
+## Bake a downloaded CC0 kit GLB down to one surface, normalise its footprint
+## to one tile, centre it on X/Z and ground its bottom at y = 0. Normalising at
+## load time is what lets the same mesh be scaled to a building span, a vehicle
+## radius or a prop cluster without any floating or sinking.
+func _kit_prop(file: String) -> Dictionary:
+	if _kit_props.has(file):
+		return _kit_props[file]
+	var result := {"mesh": null, "texture": null, "height": 1.0}
+	var path := KIT_PROP_DIR + file
+	if not ResourceLoader.exists(path):
+		_kit_props[file] = result
+		return result
+	var scene := load(path) as PackedScene
+	if scene == null:
+		_kit_props[file] = result
+		return result
+	var inst := scene.instantiate()
+	var acc := {"bounds": AABB(), "has": false, "material": null}
+	_kit_collect(inst, Transform3D.IDENTITY, acc)
+	if not bool(acc["has"]):
+		inst.free()
+		_kit_props[file] = result
+		return result
+	var bounds: AABB = acc["bounds"]
+	var width := maxf(bounds.size.x, bounds.size.z)
+	if width <= 0.0001:
+		width = 1.0
+	var s := 1.0 / width
+	var center := bounds.get_center()
+	var fit := Transform3D(Basis.from_scale(Vector3.ONE * s),
+		Vector3(-center.x * s, -bounds.position.y * s, -center.z * s))
+	var baked := {"v": PackedVector3Array(), "n": PackedVector3Array(),
+		"uv": PackedVector2Array(), "c": PackedColorArray(), "i": PackedInt32Array()}
+	_kit_append(inst, Transform3D.IDENTITY, fit, baked)
+	var mesh := ArrayMesh.new()
+	var verts: PackedVector3Array = baked["v"]
+	if not verts.is_empty():
+		var surface := []
+		surface.resize(Mesh.ARRAY_MAX)
+		surface[Mesh.ARRAY_VERTEX] = verts
+		surface[Mesh.ARRAY_NORMAL] = baked["n"]
+		surface[Mesh.ARRAY_TEX_UV] = baked["uv"]
+		surface[Mesh.ARRAY_COLOR] = baked["c"]
+		surface[Mesh.ARRAY_INDEX] = baked["i"]
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
+	var source = acc.get("material")
+	var tex: Texture2D = null
+	if source is BaseMaterial3D:
+		tex = (source as BaseMaterial3D).albedo_texture
+	if tex == null and KIT_ATLAS_FALLBACK.has(file):
+		var atlas := KIT_PROP_DIR + String(KIT_ATLAS_FALLBACK[file])
+		if ResourceLoader.exists(atlas):
+			tex = load(atlas) as Texture2D
+	if mesh != null and source != null:
+		mesh.surface_set_material(0, source)
+	result["mesh"] = mesh
+	result["texture"] = tex
+	result["height"] = bounds.size.y * s
+	inst.free()
+	_kit_props[file] = result
+	return result
+
+
+func _kit_collect(node: Node, xform: Transform3D, acc: Dictionary) -> void:
+	var xf := xform
+	if node is Node3D:
+		xf = xform * (node as Node3D).transform
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			var box: AABB = xf * mi.mesh.get_aabb()
+			if bool(acc["has"]):
+				var current: AABB = acc["bounds"]
+				acc["bounds"] = current.merge(box)
+			else:
+				acc["bounds"] = box
+				acc["has"] = true
+			if acc["material"] == null:
+				for si in mi.mesh.get_surface_count():
+					var mat = mi.get_active_material(si)
+					if mat != null:
+						acc["material"] = mat
+						break
+	for child in node.get_children():
+		_kit_collect(child, xf, acc)
+
+
+## Manual merge instead of SurfaceTool.append_from: several downloaded kits
+## carry a 4-bone skin on one surface and none on another, which makes
+## SurfaceTool's shared vertex format fail. Kit props are static, so skinning
+## and tangents are dropped and only position/normal/UV/indices are baked.
+func _kit_append(node: Node, xform: Transform3D, fit: Transform3D, acc: Dictionary) -> void:
+	var xf := xform
+	if node is Node3D:
+		xf = xform * (node as Node3D).transform
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			var verts: PackedVector3Array = acc["v"]
+			var normals: PackedVector3Array = acc["n"]
+			var uvs: PackedVector2Array = acc["uv"]
+			var colors: PackedColorArray = acc["c"]
+			var indices: PackedInt32Array = acc["i"]
+			var xform_full := fit * xf
+			var basis := xform_full.basis
+			for si in mi.mesh.get_surface_count():
+				var arrays: Array = mi.mesh.surface_get_arrays(si)
+				if arrays == null or arrays.size() < Mesh.ARRAY_MAX:
+					continue
+				var src_verts = arrays[Mesh.ARRAY_VERTEX]
+				if src_verts == null:
+					continue
+				var src_normals = arrays[Mesh.ARRAY_NORMAL]
+				var src_uvs = arrays[Mesh.ARRAY_TEX_UV]
+				var src_indices = arrays[Mesh.ARRAY_INDEX]
+				var src_colors = arrays[Mesh.ARRAY_COLOR]
+				var source_mat = mi.get_active_material(si)
+				var surface_col = Color.WHITE
+				if source_mat is BaseMaterial3D:
+					surface_col = (source_mat as BaseMaterial3D).albedo_color
+				var base := verts.size()
+				for vi in src_verts.size():
+					verts.append(xform_full * (src_verts[vi] as Vector3))
+					var n := Vector3.UP
+					if src_normals != null and vi < src_normals.size():
+						n = src_normals[vi]
+					normals.append((basis * n).normalized())
+					var uv := Vector2.ZERO
+					if src_uvs != null and vi < src_uvs.size():
+						uv = src_uvs[vi]
+					uvs.append(uv)
+					var vcol := Color.WHITE
+					if src_colors != null and vi < src_colors.size():
+						vcol = src_colors[vi]
+					colors.append(surface_col * vcol)
+				if src_indices == null:
+					for vi in src_verts.size():
+						indices.append(base + vi)
+				else:
+					for idx in src_indices:
+						indices.append(base + int(idx))
+			acc["v"] = verts
+			acc["n"] = normals
+			acc["uv"] = uvs
+			acc["c"] = colors
+			acc["i"] = indices
+	for child in node.get_children():
+		_kit_append(child, xf, fit, acc)
+
+
+func _kit_tint(file: String) -> Color:
+	match file:
+		"crystal_rock.glb":
+			return Color(0.95, 0.80, 0.62)
+		"container.glb":
+			return Color(0.80, 0.72, 0.58)
+		"pipe.glb":
+			return Color(0.74, 0.66, 0.54)
+		"barrel.glb":
+			return Color(0.70, 0.58, 0.44)
+		"barrel_stack.glb":
+			return Color(0.78, 0.66, 0.50)
+		"dish.glb":
+			return Color(0.78, 0.74, 0.66)
+		"generator.glb":
+			return Color(0.78, 0.72, 0.60)
+		"cargo_shuttle.glb":
+			return Color(0.86, 0.76, 0.62)
+		"wreck_tank.glb":
+			return Color(0.85, 0.74, 0.60)
+	return Color(0.84, 0.74, 0.60)
+
+
+func _kit_material(file: String) -> Material:
+	if _kit_materials.has(file):
+		return _kit_materials[file]
+	var prop := _kit_prop(file)
+	var tex: Texture2D = prop.get("texture")
+	if _kit_shader == null:
+		_kit_shader = load(KIT_SHADER)
+	if _kit_white == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		img.fill(Color.WHITE)
+		_kit_white = ImageTexture.create_from_image(img)
+	var mat := ShaderMaterial.new()
+	mat.resource_name = "KitProp_" + file.get_basename()
+	mat.shader = _kit_shader
+	mat.set_shader_parameter("albedo_tex", tex if tex != null else _kit_white)
+	mat.set_shader_parameter("sim_map", sim_texture)
+	mat.set_shader_parameter("map_size", float(map_size))
+	mat.set_shader_parameter("tint", _kit_tint(file))
+	var rough := 0.78
+	var metal := 0.16
+	if file == "wreck_tank.glb":
+		rough = 0.72
+		metal = 0.38
+	elif file == "dish.glb" or file == "generator.glb":
+		metal = 0.32
+	elif file == "crystal_rock.glb":
+		rough = 0.62
+		metal = 0.02
+	mat.set_shader_parameter("prop_roughness", rough)
+	mat.set_shader_parameter("prop_metallic", metal)
+	_kit_materials[file] = mat
+	return mat
+
+
+func _kit_prop_node(file: String, parent: Node3D, size: float, local_pos: Vector3,
+		yaw: float, shadow := true) -> MeshInstance3D:
+	var prop := _kit_prop(file)
+	if prop.get("mesh") == null:
+		return null
+	var mi := MeshInstance3D.new()
+	mi.name = "Kit_" + file.get_basename()
+	mi.mesh = prop["mesh"]
+	var mat := _kit_material(file)
+	if mat != null:
+		mi.material_override = mat
+	mi.position = local_pos
+	mi.rotation.y = yaw
+	mi.scale = Vector3.ONE * size
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadow \
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+func _pad_props_for(type_id: String) -> Array:
+	match type_id:
+		"refinery", "silo":
+			return ["container.glb", "pipe.glb", "barrel_stack.glb"]
+		"factory", "heavy_factory", "cy", "ix", "hightech":
+			return ["generator.glb", "container.glb", "barrel_stack.glb"]
+		"starport", "repair_pad":
+			return ["container.glb", "barrel_stack.glb", "pipe.glb"]
+		"outpost":
+			return ["generator.glb", "barrel_stack.glb", "container.glb"]
+		"barracks":
+			return ["barrel_stack.glb", "container.glb", "barrel_stack.glb"]
+	return ["barrel_stack.glb", "container.glb", "pipe.glb"]
+
+
+## Dress each finished structure with kit props that are parented to the
+## building root, so fog visibility and demolition apply automatically. Props
+## are grounded against the live height field just outside the pad lip.
+func _add_building_kit_upgrades(rec: Dictionary, b) -> void:
+	if bool(rec.get("kit_done", false)):
+		return
+	rec["kit_done"] = true
+	if b.type_id == "wall":
+		return
+	var span: Vector2i = rec.get("span", Vector2i.ONE)
+	var height := float(rec.get("model_height", 1.4))
+	var node: Node3D = rec["node"]
+	var pad_y := float(rec.get("pad_y", 0.0))
+	var base: Vector2 = b.global_position
+	var team := int(b.get("team"))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(b.get_instance_id()) & 0x7fffffff
+
+	# House accent panel on the front foundation lip. _update_trim keeps this
+	# in sync with Atreides blue, Harkonnen red and Ordos green at runtime.
+	var panel := MeshInstance3D.new()
+	panel.name = "KitFactionTrim"
+	var panel_mesh := BoxMesh.new()
+	panel_mesh.size = Vector3(0.50, 0.055, 0.16)
+	panel.mesh = panel_mesh
+	panel.material_override = _trim_material(team)
+	# Sit the livery bar on the front lip of the authored foundation. The old
+	# fixed height left it hovering over the sand just outside the pad.
+	var panel_x := float(span.x) * 0.26
+	var panel_z := float(span.y) * 0.5 - 0.18
+	var panel_y := _roof_surface_height(rec, panel_x, panel_z, FOUNDATION_TOP + 0.04)
+	panel.position = Vector3(panel_x, panel_y + 0.028, panel_z)
+	panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(panel)
+	rec["kit_trim"] = panel
+
+	var props := _pad_props_for(String(b.type_id))
+	var offsets := [
+		Vector2(float(span.x) * 0.5 + 0.34, float(span.y) * 0.22),
+		Vector2(-float(span.x) * 0.5 - 0.34, -float(span.y) * 0.18),
+		Vector2(float(span.x) * 0.12, -float(span.y) * 0.5 - 0.36),
+	]
+	for i in mini(props.size(), offsets.size()):
+		var off: Vector2 = offsets[i]
+		var wp := base + off * TILE
+		if wp.x < TILE or wp.y < TILE or wp.x > float(map_size * TILE) - TILE \
+				or wp.y > float(map_size * TILE) - TILE:
+			continue
+		var ly := ground_height(wp) - pad_y
+		_kit_prop_node(String(props[i]), node, rng.randf_range(0.32, 0.46),
+			Vector3(off.x, ly + 0.008, off.y), rng.randf() * TAU)
+
+	# Rooftop hardware. A House uplink dish on command structures and a plant
+	# generator on production roofs read clearly at the default RTS zoom.
+	var roof_file := ""
+	match String(b.type_id):
+		"outpost", "hightech", "ix", "palace", "starport":
+			roof_file = "dish.glb"
+		"cy", "factory", "heavy_factory":
+			roof_file = "generator.glb"
+	if roof_file != "":
+		var roof_x := float(span.x) * 0.19
+		var roof_z := -float(span.y) * 0.18
+		var roof_y := _roof_surface_height(rec, roof_x, roof_z)
+		# If no authored surface is under that point (an open gantry, for
+		# example), omit the prop instead of parking it in the sky.
+		if roof_y > -1000.0:
+			_kit_prop_node(roof_file, node, 0.46 if roof_file == "dish.glb" else 0.30,
+				Vector3(roof_x, roof_y + 0.006, roof_z), rng.randf() * TAU)
+
+	# Landed cargo shuttle beside the landing pads. It is normalised to just
+	# under a tile so it never overlaps the building footprint.
+	if String(b.type_id) in ["starport", "repair_pad"]:
+		var off := Vector2(float(span.x) * 0.5 + 1.05, -float(span.y) * 0.18)
+		var wp := base + off * TILE
+		if wp.x > TILE and wp.y > TILE and wp.x < float(map_size * TILE) - TILE \
+				and wp.y < float(map_size * TILE) - TILE:
+			_kit_prop_node("cargo_shuttle.glb", node, 0.95,
+				Vector3(off.x, ground_height(wp) - pad_y + 0.01, off.y),
+				rng.randf() * TAU)
+
+
+## Static kit clutter, batched into one MultiMesh per silhouette. It replaces
+## nothing: it sits alongside the existing procedural scatter and gives the
+## desert real sci-fi cargo, drums, crystal outcrops and wrecked armour.
+func _build_kit_clutter() -> void:
+	if game == null or game.terrain == null or sim_texture == null:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 661903
+	var limit := float(map_size * TILE)
+	var containers: Array[Transform3D] = []
+	var barrels: Array[Transform3D] = []
+	var crystals: Array[Transform3D] = []
+	var wrecks: Array[Transform3D] = []
+
+	# Cargo containers spilled on open sand.
+	for i in 90:
+		var p := Vector2(rng.randf_range(2.0 * TILE, limit - 2.0 * TILE),
+			rng.randf_range(2.0 * TILE, limit - 2.0 * TILE))
+		if _inside_building_pad(p):
+			continue
+		var tile: Vector2i = game.terrain.tile_of(p)
+		if tile.x < 0 or tile.y < 0 or tile.x >= map_size or tile.y >= map_size:
+			continue
+		var idx: int = tile.y * map_size + tile.x
+		if game.terrain.types.size() <= idx or game.terrain.types[idx] == GameDefs.ROCK:
+			continue
+		if game.terrain.concrete.size() > idx and game.terrain.concrete[idx] == 1:
+			continue
+		var cs := rng.randf_range(0.30, 0.54)
+		containers.append(_scatter_ground_transform(p, rng.randf() * TAU,
+			Vector3.ONE * cs, 0.01))
+
+	# Fuel drums around working pads, just past the foundation lip.
+	for b in game.buildings:
+		if not is_instance_valid(b) or b.dead or b.type_id == "wall":
+			continue
+		for k in 6:
+			var p := _base_scatter_point(b, rng)
+			if p.x < 2.0 * TILE or p.y < 2.0 * TILE or p.x > limit - 2.0 * TILE or p.y > limit - 2.0 * TILE:
+				continue
+			if _inside_building_pad(p):
+				continue
+			if barrels.size() >= 150:
+				break
+			var bs := rng.randf_range(0.16, 0.28)
+			barrels.append(_scatter_ground_transform(p, rng.randf() * TAU,
+				Vector3.ONE * bs, 0.006))
+
+	# Warm crystal outcrops on plateau edges.
+	for z in map_size:
+		for x in map_size:
+			if not _rock_tile_edge(x, z, map_size) or rng.randf() > 0.13:
+				continue
+			if crystals.size() >= 140:
+				break
+			var p := _scatter_point_in_tile(x, z, rng)
+			if _inside_building_pad(p):
+				continue
+			var ks := rng.randf_range(0.20, 0.46)
+			crystals.append(_scatter_ground_transform(p, rng.randf() * TAU,
+				Vector3.ONE * ks, 0.012))
+
+	# A handful of destroyed Quaternius hulls for battlefield archaeology.
+	for i in 4:
+		var p := Vector2(rng.randf_range(6.0 * TILE, limit - 6.0 * TILE),
+			rng.randf_range(6.0 * TILE, limit - 6.0 * TILE))
+		if _inside_building_pad(p):
+			continue
+		var ws := rng.randf_range(0.62, 0.88)
+		wrecks.append(_scatter_ground_transform(p, rng.randf() * TAU,
+			Vector3.ONE * ws, 0.012))
+
+	_add_kit_batch("KitCargoClutter", "container.glb", containers)
+	_add_kit_batch("KitDrumClutter", "barrel.glb", barrels)
+	_add_kit_batch("KitCrystalClutter", "crystal_rock.glb", crystals)
+	_add_kit_batch("KitTankWrecks", "wreck_tank.glb", wrecks)
+
+
+func _add_kit_batch(name: String, file: String, transforms: Array[Transform3D]) -> void:
+	if transforms.is_empty():
+		return
+	var prop := _kit_prop(file)
+	if prop.get("mesh") == null:
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = prop["mesh"]
+	mm.instance_count = transforms.size()
+	mm.custom_aabb = AABB(Vector3(-8.0, -4.0, -8.0),
+		Vector3(float(map_size) + 16.0, 10.0, float(map_size) + 16.0))
+	for i in transforms.size():
+		mm.set_instance_transform(i, transforms[i])
+	var inst := MultiMeshInstance3D.new()
+	inst.name = name
+	inst.multimesh = mm
+	inst.material_override = _kit_material(file)
+	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	world.add_child(inst)
 
 
 func _add_vent_stack(rec: Dictionary, base_pos: Vector3, height: float) -> Vector3:
@@ -2176,6 +2835,7 @@ func _build_ground_decor() -> void:
 		return
 	_build_pebbles()
 	_build_scatter()
+	_build_kit_clutter()
 	_build_gantry_crane()
 	_build_tread_pool()
 	_build_crater_pool()
@@ -2365,14 +3025,16 @@ func _build_scatter() -> void:
 				var cs := rng.randf_range(0.14, 0.27)
 				var cs_y := cs * rng.randf_range(0.62, 1.0)
 				var stack_count := rng.randi_range(1, 3)
+				# One footprint per pile. Re-randomising X/Z and adding a gap for
+				# every upper level left boxes hovering beside the pad.
+				var stack_p := p + Vector2(rng.randf_range(-0.65, 0.65),
+					rng.randf_range(-0.65, 0.65))
 				for stack_i in stack_count:
 					if crates.size() >= SCATTER_CRATE_CAP:
 						break
-					var stack_p := p + Vector2(rng.randf_range(-1.2, 1.2),
-						rng.randf_range(-1.2, 1.2)) * (1.0 if stack_i == 0 else 0.35)
 					crates.append(_scatter_ground_transform(stack_p, rng.randf() * TAU,
 						Vector3(cs, cs_y, cs * rng.randf_range(0.65, 1.1)),
-						cs_y * (0.5 + float(stack_i) * 0.92)))
+						cs_y * (0.5 + float(stack_i))))
 					crate_tones.append(rng.randf())
 			elif roll < 0.58 and canisters.size() < SCATTER_CANISTER_CAP:
 				var hs := rng.randf_range(0.10, 0.17)
@@ -2400,33 +3062,34 @@ func _build_scatter() -> void:
 	canister_scatter = _add_scatter_group("FuelCanisters", _make_scatter_canister_mesh(), canisters, canister_tones, 4)
 
 
-## A single batched truss gantry beside the starting base. The authored
-## buildings have their own service cranes, but the reference read is a large
-## lattice structure crossing empty staging ground; this adds that silhouette
-## without adding forty individual draw calls.
+## A single batched service gantry on open staging ground beside the base.
+## Keep this out of the structure footprints: the previous refinery-relative
+## anchor put the lattice directly over the Construction Yard, so zooming in
+## showed a cage around the building instead of a background crane.
 func _build_gantry_crane() -> void:
 	if game == null:
 		return
 	var anchor := Vector2(-1.0, -1.0)
-	# Prefer the refinery: placing the gantry relative to the command yard put
-	# it half off-screen. The refinery is the industrial anchor of the base and
-	# keeps the truss over open staging ground in the default camera.
 	for b in game.buildings:
-		if is_instance_valid(b) and not b.dead and b.team == 0 and b.type_id == "refinery":
+		if is_instance_valid(b) and not b.dead and b.team == 0 and b.type_id == "cy":
 			anchor = b.global_position
 			break
 	if anchor.x < 0.0:
+		var span := Vector2.ZERO
+		var count := 0
 		for b in game.buildings:
-			if is_instance_valid(b) and not b.dead and b.team == 0 \
-					and b.type_id in ["factory", "heavy_factory", "cy", "hightech"]:
-				anchor = b.global_position
-				break
+			if is_instance_valid(b) and not b.dead and b.team == 0:
+				span += b.global_position
+				count += 1
+		if count > 0:
+			anchor = span / float(count)
 	if anchor.x < 0.0:
 		return
-	var center := anchor + Vector2(-4.6, 0.9) * TILE
+	# West/north of the command yard, clear of every starting footprint.
+	var center := anchor + Vector2(-6.6, -5.4) * TILE
 	var limit := float(map_size * TILE)
-	center = center.clamp(Vector2(3.8 * TILE, 3.8 * TILE),
-		Vector2(limit - 3.8 * TILE, limit - 3.8 * TILE))
+	center = center.clamp(Vector2(4.2 * TILE, 4.2 * TILE),
+		Vector2(limit - 4.2 * TILE, limit - 4.2 * TILE))
 	var base := Vector3(center.x * WORLD_SCALE, ground_height(center),
 		center.y * WORLD_SCALE)
 	var dark := Color(0.30, 0.255, 0.205)
@@ -2437,7 +3100,7 @@ func _build_gantry_crane() -> void:
 	# Slightly sunken concrete apron with a few edge blocks.
 	var deck := MeshInstance3D.new()
 	var deck_mesh := BoxMesh.new()
-	deck_mesh.size = Vector3(4.2, 0.14, 2.0)
+	deck_mesh.size = Vector3(3.0, 0.12, 1.35)
 	deck.mesh = deck_mesh
 	deck.position = base + Vector3(0.0, 0.07, 0.0)
 	var deck_mat := StandardMaterial3D.new()
@@ -2466,7 +3129,7 @@ func _build_gantry_crane() -> void:
 	var pipe_mesh := CylinderMesh.new()
 	pipe_mesh.top_radius = 0.075
 	pipe_mesh.bottom_radius = 0.075
-	pipe_mesh.height = 2.9
+	pipe_mesh.height = 2.1
 	pipe_mesh.radial_segments = 10
 	pipe_rack.mesh = pipe_mesh
 	pipe_rack.rotation.z = PI * 0.5
@@ -2492,25 +3155,27 @@ func _build_gantry_crane() -> void:
 		transforms.append(Transform3D(basis, (a + b) * 0.5))
 		colors.append(color)
 
-	var sx := 1.50
-	var sz := 0.58
-	var top := 2.35
+	var sx := 1.05
+	var sz := 0.42
+	var top := 1.95
 	# Four splayed legs, footings and a full perimeter of lattice bracing.
 	for x in [-sx, sx]:
 		for z in [-sz, sz]:
 			var foot := base + Vector3(x, 0.0, z)
 			add_bar.call(foot + Vector3(0.0, 0.06, 0.0), foot + Vector3(0.0, top, 0.0), 0.17, dark)
 			add_bar.call(foot + Vector3(-0.24, 0.02, 0.0), foot + Vector3(0.24, 0.02, 0.0), 0.22, steel)
-	for level in [0.55, 1.45, 2.35, 3.25]:
+	# Stay below the top chord. The old 3.25 level floated a second cage
+	# above a 2.35-high frame and dominated the mobile close-up.
+	for level in [0.45, 0.95, 1.45, 1.95]:
 		for z in [-sz, sz]:
 			add_bar.call(base + Vector3(-sx, level, z), base + Vector3(sx, level, z), 0.075, steel)
 		for x in [-sx, sx]:
 			add_bar.call(base + Vector3(x, level, -sz), base + Vector3(x, level, sz), 0.075, steel)
 	for z in [-sz, sz]:
-		add_bar.call(base + Vector3(-sx, 0.20, z), base + Vector3(sx, 1.30, z), 0.055, rust)
-		add_bar.call(base + Vector3(sx, 0.20, z), base + Vector3(-sx, 1.30, z), 0.055, steel)
-		add_bar.call(base + Vector3(-sx, 2.55, z), base + Vector3(sx, top, z), 0.055, rust)
-		add_bar.call(base + Vector3(sx, 2.55, z), base + Vector3(-sx, top, z), 0.055, steel)
+		add_bar.call(base + Vector3(-sx, 0.20, z), base + Vector3(sx, 1.10, z), 0.048, rust)
+		add_bar.call(base + Vector3(sx, 0.20, z), base + Vector3(-sx, 1.10, z), 0.048, steel)
+		add_bar.call(base + Vector3(-sx, 1.25, z), base + Vector3(sx, top, z), 0.048, rust)
+		add_bar.call(base + Vector3(sx, 1.25, z), base + Vector3(-sx, top, z), 0.048, steel)
 
 	# Twin top chords and a zig-zag truss, with the hoist trolley on top.
 	for z in [-sz, sz]:
@@ -2521,9 +3186,16 @@ func _build_gantry_crane() -> void:
 			add_bar.call(base + Vector3(x0, top, z), base + Vector3(x1, top + (0.62 if i % 2 == 0 else -0.0), z), 0.060, dark)
 			add_bar.call(base + Vector3(x0, top, z), base + Vector3(x1, top - 0.44, z), 0.060, dark)
 	for x in [-sx, -sx * 0.5, 0.0, sx * 0.5, sx]:
-		add_bar.call(base + Vector3(x, top, -sz), base + Vector3(x, top, sz), 0.070, steel)
-	add_bar.call(base + Vector3(-sx, top - 0.44, -sz), base + Vector3(-sx, top - 0.44, sz), 0.060, dark)
-	add_bar.call(base + Vector3(sx, top - 0.44, -sz), base + Vector3(sx, top - 0.44, sz), 0.060, dark)
+		add_bar.call(base + Vector3(x, top, -sz), base + Vector3(x, top, sz), 0.060, steel)
+	add_bar.call(base + Vector3(-sx, top - 0.38, -sz), base + Vector3(-sx, top - 0.38, sz), 0.050, dark)
+	add_bar.call(base + Vector3(sx, top - 0.38, -sz), base + Vector3(sx, top - 0.38, sz), 0.050, dark)
+	# A short cantilevered jib gives the silhouette a crane read instead of a
+	# closed scaffold box.
+	for z in [-0.14, 0.14]:
+		add_bar.call(base + Vector3(sx, top, z), base + Vector3(sx + 1.55, top, z), 0.070, steel)
+		add_bar.call(base + Vector3(sx, top - 0.34, z), base + Vector3(sx + 1.30, top - 0.34, z), 0.040, dark)
+	add_bar.call(base + Vector3(sx + 1.40, top, 0.0), base + Vector3(sx + 1.40, top - 1.05, 0.0), 0.022, rust)
+	add_bar.call(base + Vector3(sx + 1.24, top - 1.05, 0.0), base + Vector3(sx + 1.56, top - 1.05, 0.0), 0.085, hazard)
 
 	# Hoist trolley, cable and hook; hazard bands at the base of each leg.
 	add_bar.call(base + Vector3(-0.35, top + 0.10, 0.0), base + Vector3(0.35, top + 0.10, 0.0), 0.30, dark)
@@ -2536,10 +3208,10 @@ func _build_gantry_crane() -> void:
 				add_bar.call(base + Vector3(x - 0.14, level, z), base + Vector3(x + 0.14, level, z), 0.045, hazard)
 	# Rungs on the east leg read as a service ladder.
 	for i in 4:
-		var y := 0.55 + i * 0.36
-		add_bar.call(base + Vector3(sx + 0.12, y, -sz + 0.08), base + Vector3(sx + 0.12, y, sz - 0.08), 0.026, steel)
-	add_bar.call(base + Vector3(sx + 0.12, 0.5, -sz), base + Vector3(sx + 0.12, 2.4, -sz), 0.026, steel)
-	add_bar.call(base + Vector3(sx + 0.12, 0.5, sz), base + Vector3(sx + 0.12, 2.4, sz), 0.026, steel)
+		var y := 0.45 + i * 0.34
+		add_bar.call(base + Vector3(sx + 0.12, y, -sz + 0.08), base + Vector3(sx + 0.12, y, sz - 0.08), 0.024, steel)
+	add_bar.call(base + Vector3(sx + 0.12, 0.45, -sz), base + Vector3(sx + 0.12, 1.82, -sz), 0.024, steel)
+	add_bar.call(base + Vector3(sx + 0.12, 0.45, sz), base + Vector3(sx + 0.12, 1.82, sz), 0.024, steel)
 
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -2767,12 +3439,13 @@ func _build_atmosphere() -> void:
 	ambient_dust.scale_amount_curve = _growth_curve(0.7, 1.7)
 	ambient_dust.preprocess = 4.0
 	ambient_dust.visibility_aabb = AABB(Vector3(-26.0, -4.0, -26.0), Vector3(52.0, 14.0, 52.0))
+	ambient_dust.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ambient_dust.emitting = true
 	var dust_grad := Gradient.new()
 	dust_grad.offsets = PackedFloat32Array([0.0, 0.18, 0.72, 1.0])
 	dust_grad.colors = PackedColorArray([
-		Color(0.66, 0.52, 0.37, 0.0), Color(0.61, 0.48, 0.34, 0.30),
-		Color(0.53, 0.41, 0.29, 0.18), Color(0.48, 0.37, 0.27, 0.0)])
+		Color(0.92, 0.81, 0.65, 0.0), Color(0.90, 0.78, 0.61, 0.16),
+		Color(0.82, 0.69, 0.52, 0.09), Color(0.72, 0.59, 0.44, 0.0)])
 	ambient_dust.color_ramp = dust_grad
 	world.add_child(ambient_dust)
 	# Larger, much fainter puffs behind the motes. These are the actual visible
@@ -2794,11 +3467,12 @@ func _build_atmosphere() -> void:
 	dust_veil.scale_amount_curve = _growth_curve(0.8, 1.8)
 	dust_veil.preprocess = 6.0
 	dust_veil.visibility_aabb = AABB(Vector3(-28.0, -4.0, -28.0), Vector3(56.0, 14.0, 56.0))
+	dust_veil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var veil_grad := Gradient.new()
 	veil_grad.offsets = PackedFloat32Array([0.0, 0.25, 0.72, 1.0])
 	veil_grad.colors = PackedColorArray([
-		Color(0.58, 0.46, 0.33, 0.0), Color(0.57, 0.45, 0.32, 0.24),
-		Color(0.50, 0.39, 0.28, 0.14), Color(0.44, 0.34, 0.25, 0.0)])
+		Color(0.96, 0.84, 0.67, 0.0), Color(0.93, 0.81, 0.64, 0.13),
+		Color(0.85, 0.72, 0.55, 0.08), Color(0.76, 0.63, 0.47, 0.0)])
 	dust_veil.color_ramp = veil_grad
 	world.add_child(dust_veil)
 	_follow_atmosphere()

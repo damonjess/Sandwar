@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cxj6jxcp4y8cd"
-path="res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "39505ffd5cfe57e9a8c065d217e0581b"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Status_Lamp.png"
-dest_files=["res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.s3tc.ctex", "res://.godot/imported/rocketturret_N_Status_Lamp.png-192a12f9d9f4d570dabefd7c3dae8339.etc2.ctex"]
 
 [params]
 

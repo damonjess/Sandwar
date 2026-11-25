@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bks0hudyai7wm"
-path="res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e3bbbac63122757e03887f1262c6eb5a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Louver_Dark.png"
-dest_files=["res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.s3tc.ctex", "res://.godot/imported/rocketturret_N_Louver_Dark.png-cf05def810c0070fc58e8c49bb8b33d1.etc2.ctex"]
 
 [params]
 

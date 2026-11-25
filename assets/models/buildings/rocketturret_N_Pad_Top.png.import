@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c5p4gfka3jfgo"
-path="res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "50e9e70d79febbc98d90809ee6abb6e1"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Pad_Top.png"
-dest_files=["res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.s3tc.ctex", "res://.godot/imported/rocketturret_N_Pad_Top.png-157a0adfb2508929473af662191fac76.etc2.ctex"]
 
 [params]
 

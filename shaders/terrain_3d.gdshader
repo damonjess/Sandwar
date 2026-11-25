@@ -6,6 +6,29 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 uniform sampler2D sim_map : filter_linear, repeat_disable;
 uniform float map_size = 56.0;
 
+// Real seamless CC0 PBR sets (ambientCG 1K, NormalGL convention). Albedo and
+// detail maps are tiled in world space, never in the terrain mesh's UV space,
+// so the 56x56 simulation grid cannot print its own texture lattice.
+uniform sampler2D sand_color : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D sand_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform sampler2D sand_rough : filter_linear_mipmap, repeat_enable;
+uniform sampler2D rock_color : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D rock_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform sampler2D rock_rough : filter_linear_mipmap, repeat_enable;
+uniform sampler2D concrete_color : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D concrete_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform sampler2D concrete_rough : filter_linear_mipmap, repeat_enable;
+
+// One world tile per unit. A sand tile repeats roughly every three tiles; the
+// second, rotated sample covers a much larger area to hide the seam.
+uniform float sand_scale = 0.34;
+uniform float rock_scale = 0.42;
+uniform float concrete_scale = 0.31;
+uniform float detail_strength = 0.55;
+
+varying vec3 v_world;
+varying vec3 v_world_normal;
+
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -21,6 +44,12 @@ float noise2(vec2 p) {
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+vec2 rot2(vec2 p, float a) {
+	float s = sin(a);
+	float c = cos(a);
+	return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+}
+
 // Small two-octave warp used to bend the otherwise low-resolution simulation
 // mask into rounded desert contours. This is colour/normal only; the mesh
 // carries the matching broad geometric warp.
@@ -32,6 +61,22 @@ vec2 domain_warp(vec2 p) {
 		noise2(p * 2.17 + q * 3.1 + vec2(5.3, 1.9)),
 		noise2(p * 2.03 - q * 2.7 + vec2(2.1, 9.4)));
 	return (q - 0.5) * 0.14 + (r - 0.5) * 0.045;
+}
+
+// Height-field projection. Flat ground projects straight down (XZ); a steep
+// cliff rotates onto a vertical plane so its strata do not smear into long
+// streaks when the camera looks along the plateau wall.
+vec2 project_world(vec3 w, vec3 wn) {
+	float cliff = clamp(1.0 - abs(wn.y), 0.0, 1.0);
+	cliff = smoothstep(0.20, 0.78, cliff);
+	vec2 ground = w.xz;
+	vec2 wall = vec2((w.x + w.z) * 0.7071, w.y);
+	return mix(ground, wall, cliff);
+}
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
 
 void fragment() {
@@ -82,23 +127,54 @@ void fragment() {
 	conc_near += (noise2(tile * 4.5 + vec2(6.0, 1.0)) - 0.5) * 0.16;
 	concrete = smoothstep(0.26, 0.74, conc_near);
 
-	// Warm sun-bleached sand with pale crests and umber troughs.
-	vec3 sand = mix(vec3(0.555, 0.440, 0.305), vec3(0.855, 0.715, 0.535),
-			broad * 0.62 + fine * 0.38);
-	sand += vec3(0.030, 0.023, 0.014) * (grit - 0.5);
-	sand += vec3(0.026, 0.018, 0.009) * (grain - 0.5);
+	// ------------------------------------------------------- PBR world tiling
+	// Each material gets a primary tiling and a rotated, off-phase second
+	// scale. Blending them with a low-frequency field breaks the repeat
+	// without the cost of full three-axis triplanar sampling on Android.
+	vec3 wpos = v_world;
+	vec3 wnorm = normalize(v_world_normal);
+	vec2 pbase = project_world(wpos, wnorm);
+	float phase = clamp(noise2(pbase * 0.26 + vec2(9.0, 3.0)) * 0.72 + 0.14, 0.0, 1.0);
+
+	vec2 sand_a = pbase * sand_scale;
+	vec2 sand_b = rot2(pbase, 2.399) * sand_scale * 0.43 + vec2(0.37, 0.71);
+	vec2 rock_a = pbase * rock_scale + vec2(0.11, 0.53);
+	vec2 rock_b = rot2(pbase, 1.973) * rock_scale * 0.41 + vec2(0.61, 0.19);
+	vec2 conc_a = pbase * concrete_scale + vec2(0.43, 0.07);
+	vec2 conc_b = rot2(pbase, 2.711) * concrete_scale * 0.45 + vec2(0.23, 0.87);
+
+	vec3 sand_tex = mix(texture(sand_color, sand_a).rgb,
+			texture(sand_color, sand_b).rgb, phase);
+	vec3 rock_tex = mix(texture(rock_color, rock_a).rgb,
+			texture(rock_color, rock_b).rgb, phase);
+	vec3 conc_tex = mix(texture(concrete_color, conc_a).rgb,
+			texture(concrete_color, conc_b).rgb, phase);
+
+	vec3 sand_n_a = texture(sand_normal, sand_a).xyz * 2.0 - 1.0;
+	vec3 sand_n_b = texture(sand_normal, sand_b).xyz * 2.0 - 1.0;
+	vec3 sand_n = normalize(mix(sand_n_a, sand_n_b, phase));
+	vec3 rock_n = texture(rock_normal, rock_a).xyz * 2.0 - 1.0;
+	vec3 conc_n = texture(concrete_normal, conc_a).xyz * 2.0 - 1.0;
+
+	// Warm Arrakis golden sand against weathered terracotta plateau rock. The
+	// tint is deliberately gentle: the CC0 albedo must stay readable under the
+	// low sun instead of being repainted into flat cartoon colour.
+	vec3 sand = sand_tex * vec3(1.10, 0.965, 0.790);
+	sand *= 0.88 + 0.22 * (broad * 0.62 + fine * 0.38);
+	sand += vec3(0.018, 0.012, 0.006) * (grit - 0.5);
+	sand += vec3(0.014, 0.010, 0.005) * (grain - 0.5);
+
 	// Weathered terracotta sandstone, darker in fissures and bleached on top.
-	vec3 stone = mix(vec3(0.305, 0.190, 0.112), vec3(0.565, 0.395, 0.245),
-			broad * 0.44 + fine * 0.56);
-	stone = mix(stone, vec3(0.185, 0.098, 0.052), pow(1.0 - fine, 4.0) * 0.48);
-	stone *= 1.0 + (grain - 0.5) * 0.06;
+	vec3 stone = rock_tex * vec3(1.20, 0.840, 0.590);
+	stone *= 0.86 + 0.24 * (broad * 0.44 + fine * 0.56);
+	stone = mix(stone, stone * vec3(0.50, 0.34, 0.24), pow(1.0 - fine, 4.0) * 0.42);
 	// Flat-topped mesas need surface archaeology at RTS distance: horizontal
 	// strata and a few deep wind cracks stop them reading as blank polygons.
 	float strata = sin(tile.x * 1.7 + broad * 4.0) * sin(tile.y * 1.3 + 0.6);
-	stone *= 1.0 + strata * 0.055;
+	stone *= 1.0 + strata * 0.060;
 	float crack = smoothstep(0.86, 0.98, noise2(tile * 1.5 + vec2(13.0, 7.0)));
-	stone = mix(stone, stone * 0.70, crack * 0.55);
-	vec3 col = mix(sand, stone, rock * 0.78);
+	stone = mix(stone, stone * 0.62, crack * 0.55);
+	vec3 col = mix(sand, stone, rock * 0.80);
 
 	// A darker, noisy lip marks the drop from plateau to sand, so the mesh's
 	// one-tile cliff slope reads as layered rock rather than a soft hill.
@@ -106,7 +182,8 @@ void fragment() {
 	col = mix(col, col * vec3(0.58, 0.47, 0.39), lip * (0.70 + fine * 0.30));
 
 	// Paved concrete keeps the same sun-baked family as the buildings.
-	vec3 slab = mix(vec3(0.455, 0.400, 0.330), vec3(0.620, 0.545, 0.430), fine);
+	vec3 slab = conc_tex * vec3(1.04, 0.955, 0.830);
+	slab *= 0.90 + 0.18 * fine;
 	float seam = step(0.97, fract(tile.x / 3.0)) + step(0.97, fract(tile.y / 3.0));
 	slab *= 1.0 - min(seam, 1.0) * 0.10;
 	col = mix(col, slab, concrete * 0.55);
@@ -197,7 +274,8 @@ void fragment() {
 	col *= darkness;
 	col = mix(col, vec3(0.10, 0.078, 0.055), unseen * 0.15);
 
-	// World-space detail normal from the ripple gradients and spice clumps.
+	// World-space detail normal: real PBR normal maps supply the grain, while
+	// the procedural ripples and spice clumps keep the large dunes readable.
 	// A tangent-space NORMAL_MAP flipped on alternate triangles (inconsistent
 	// generated tangents), printing a big checkerboard across the dunes. The
 	// terrain is a height field in XZ, so perturbing the world normal directly
@@ -208,12 +286,24 @@ void fragment() {
 	vec2 spice_bump = vec2(ragged - 0.5, fine - 0.5) * spice_mask * 2.0
 			+ micro_bump * spice_mask * 1.1;
 	vec2 sand_bump = micro_bump * sand_mask * 0.22;
-	vec3 n_world = normalize(vec3(-ripple_grad.x - spice_bump.x - sand_bump.x, 1.0,
-			-ripple_grad.y - spice_bump.y - sand_bump.y));
+	vec2 pbr_bump = sand_n.xy * (1.0 - rock) * (1.0 - concrete)
+			+ rock_n.xy * rock + conc_n.xy * concrete;
+	vec3 n_world = normalize(vec3(
+		-ripple_grad.x - spice_bump.x - sand_bump.x - pbr_bump.x * detail_strength,
+		1.0,
+		-ripple_grad.y - spice_bump.y - sand_bump.y - pbr_bump.y * detail_strength));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
-	ALBEDO = col * 0.90;
-	ROUGHNESS = mix(mix(0.97, 0.90, spice_mask), 0.86, rock);
+	// Roughness comes from the scanned material itself, so wet shaded rock and
+	// dry sand reflect the low sun differently instead of sharing one flat
+	// toon value. Spice crust stays matte.
+	float rough_sand = texture(sand_rough, sand_a).g;
+	float rough_rock = texture(rock_rough, rock_a).g;
+	float rough_conc = texture(concrete_rough, conc_a).g;
+	float rough_tex = mix(mix(rough_sand, rough_rock, rock), rough_conc, concrete);
+	ROUGHNESS = clamp(mix(rough_tex, 0.97, spice_mask * 0.35), 0.0, 1.0);
 	METALLIC = 0.0;
 	SPECULAR = 0.18;
+
+	ALBEDO = col * 0.92;
 }

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d3vr2muct04ev"
-path="res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.ctex"
+path.s3tc="res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.s3tc.ctex"
+path.etc2="res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e3bbbac63122757e03887f1262c6eb5a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/wall_N_Louver_Dark.png"
-dest_files=["res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.ctex"]
+dest_files=["res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.s3tc.ctex", "res://.godot/imported/wall_N_Louver_Dark.png-0e0db8f509aaea98b1cf567d56c9097e.etc2.ctex"]
 
 [params]
 

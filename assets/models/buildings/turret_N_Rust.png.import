@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b0136cgj3jdne"
-path="res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.ctex"
+path.s3tc="res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.s3tc.ctex"
+path.etc2="res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "822c803cc3b1562c852d2a3631f008a7"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/turret_N_Rust.png"
-dest_files=["res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.ctex"]
+dest_files=["res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.s3tc.ctex", "res://.godot/imported/turret_N_Rust.png-2221459a78975aa30ba6c758366713ae.etc2.ctex"]
 
 [params]
 

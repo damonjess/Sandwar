@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b54lqa5ovtg07"
-path="res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.ctex"
+path.s3tc="res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.s3tc.ctex"
+path.etc2="res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "805e99d4b38efa3159da618f1ea0f50d"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/turret_head_N_Weathered_Umber_Steel.png"
-dest_files=["res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.ctex"]
+dest_files=["res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.s3tc.ctex", "res://.godot/imported/turret_head_N_Weathered_Umber_Steel.png-612c2791fee4e2816e022a8391b1f4d7.etc2.ctex"]
 
 [params]
 

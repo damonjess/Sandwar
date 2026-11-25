@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bn4yxduvltfdg"
-path="res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "cd1b7d82a7575b7cc48f01f2bed5197a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Soot_Black.png"
-dest_files=["res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.s3tc.ctex", "res://.godot/imported/rocketturret_N_Soot_Black.png-bd4bb4628568861f11f092a8f23763f3.etc2.ctex"]
 
 [params]
 

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://s3rcnf7efrda"
-path="res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.ctex"
+path.s3tc="res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.s3tc.ctex"
+path.etc2="res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "39505ffd5cfe57e9a8c065d217e0581b"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/wall_N_Status_Lamp.png"
-dest_files=["res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.ctex"]
+dest_files=["res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.s3tc.ctex", "res://.godot/imported/wall_N_Status_Lamp.png-fc0ae3fe94cfd33c61cbdb859b56b06a.etc2.ctex"]
 
 [params]
 

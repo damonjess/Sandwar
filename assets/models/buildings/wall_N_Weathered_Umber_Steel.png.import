@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://chpigkv4keku4"
-path="res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.ctex"
+path.s3tc="res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.s3tc.ctex"
+path.etc2="res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "805e99d4b38efa3159da618f1ea0f50d"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/wall_N_Weathered_Umber_Steel.png"
-dest_files=["res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.ctex"]
+dest_files=["res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.s3tc.ctex", "res://.godot/imported/wall_N_Weathered_Umber_Steel.png-ca0c5eca26787e83a237a60a92060b6a.etc2.ctex"]
 
 [params]
 

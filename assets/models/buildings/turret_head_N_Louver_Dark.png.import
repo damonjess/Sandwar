@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c7unne70mdyn6"
-path="res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.ctex"
+path.s3tc="res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.s3tc.ctex"
+path.etc2="res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e3bbbac63122757e03887f1262c6eb5a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/turret_head_N_Louver_Dark.png"
-dest_files=["res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.ctex"]
+dest_files=["res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.s3tc.ctex", "res://.godot/imported/turret_head_N_Louver_Dark.png-d9df193a38a851fab2db87994e782787.etc2.ctex"]
 
 [params]
 

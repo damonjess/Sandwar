@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bgwl5ddmjw15i"
-path="res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.ctex"
+path.s3tc="res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "f10313aea38a531545bce363fcc11818"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_head_N_Warm_Gunmetal.png"
-dest_files=["res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.ctex"]
+dest_files=["res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.s3tc.ctex", "res://.godot/imported/rocketturret_head_N_Warm_Gunmetal.png-49e551a2756d2160b065733f74faffd5.etc2.ctex"]
 
 [params]
 

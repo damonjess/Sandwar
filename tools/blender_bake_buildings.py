@@ -1448,7 +1448,10 @@ def box(size, loc, mat, rot=(0.0, 0.0, 0.0), bevel=0.008, smooth=False):
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc, rotation=rot)
     obj = bpy.context.object
     obj.name = "Box"
-    obj.scale = (size[0] * 0.5, size[1] * 0.5, size[2] * 0.5)
+    # primitive_cube_add(size=1.0) is already a unit cube; scaling by half
+    # again made every box half its authored size and pulled connected parts
+    # apart. Scale directly by the requested full dimensions.
+    obj.scale = (size[0], size[1], size[2])
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     return finish(obj, mat, bevel, smooth)
 

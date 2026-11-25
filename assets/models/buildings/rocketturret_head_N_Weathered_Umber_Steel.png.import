@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bwxbuyfyt7isu"
-path="res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.ctex"
+path.s3tc="res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "805e99d4b38efa3159da618f1ea0f50d"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_head_N_Weathered_Umber_Steel.png"
-dest_files=["res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.ctex"]
+dest_files=["res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.s3tc.ctex", "res://.godot/imported/rocketturret_head_N_Weathered_Umber_Steel.png-2bc2ece7e0751772c16521936bd2e79f.etc2.ctex"]
 
 [params]
 

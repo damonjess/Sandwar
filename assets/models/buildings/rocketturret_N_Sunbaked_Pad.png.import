@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cacppjasnjym6"
-path="res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "bc056b27dfc79bb8c77a1d4c81f5225f"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Sunbaked_Pad.png"
-dest_files=["res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.s3tc.ctex", "res://.godot/imported/rocketturret_N_Sunbaked_Pad.png-8201b7657dab4d59a21f88fc8f83bb08.etc2.ctex"]
 
 [params]
 

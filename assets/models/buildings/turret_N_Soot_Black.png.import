@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bgpu8mjhurhjs"
-path="res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.ctex"
+path.s3tc="res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.s3tc.ctex"
+path.etc2="res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "cd1b7d82a7575b7cc48f01f2bed5197a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/turret_N_Soot_Black.png"
-dest_files=["res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.ctex"]
+dest_files=["res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.s3tc.ctex", "res://.godot/imported/turret_N_Soot_Black.png-6c71c0fbf7e5dfc61720a0813bf0a714.etc2.ctex"]
 
 [params]
 

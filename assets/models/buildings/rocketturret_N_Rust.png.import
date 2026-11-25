@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bp1kufki6sabh"
-path="res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.ctex"
+path.s3tc="res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "822c803cc3b1562c852d2a3631f008a7"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_N_Rust.png"
-dest_files=["res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.ctex"]
+dest_files=["res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.s3tc.ctex", "res://.godot/imported/rocketturret_N_Rust.png-1e39c37b8627081c989bb180422a30eb.etc2.ctex"]
 
 [params]
 

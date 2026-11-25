@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://du88flaseixye"
-path="res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.ctex"
+path.s3tc="res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.s3tc.ctex"
+path.etc2="res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e3bbbac63122757e03887f1262c6eb5a"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/rocketturret_head_N_Louver_Dark.png"
-dest_files=["res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.ctex"]
+dest_files=["res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.s3tc.ctex", "res://.godot/imported/rocketturret_head_N_Louver_Dark.png-5684a911d8932d71f2a81ededdc99cb0.etc2.ctex"]
 
 [params]
 

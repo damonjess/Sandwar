@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dgpqhkffgwymq"
-path="res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.ctex"
+path.s3tc="res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.s3tc.ctex"
+path.etc2="res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "bc056b27dfc79bb8c77a1d4c81f5225f"
@@ -14,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/buildings/turret_N_Sunbaked_Pad.png"
-dest_files=["res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.ctex"]
+dest_files=["res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.s3tc.ctex", "res://.godot/imported/turret_N_Sunbaked_Pad.png-0dab41aebc896430d59b89541310f30a.etc2.ctex"]
 
 [params]
 
